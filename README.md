@@ -19,10 +19,12 @@ For Claude Code users, the repo includes 5 slash commands that wrap each pipelin
 | Command | What it does |
 |---|---|
 | `/pr-archive "<Company>" [TICKER]` | Build the full press-release archive (EDGAR + Wayback + optional Chrome) |
-| `/pr-analyze <archive-dir>` | Compute stats + write the strategic playbook (5 markdown files) |
-| `/pr-compare <archive-a> <archive-b>` | Stage-aligned comparative analysis between two companies |
-| `/pr-update <archive-dir>` | Incrementally refresh an existing archive with new releases |
+| `/pr-analyze "<Company>"` | Compute stats + write the strategic playbook (5 markdown files) |
+| `/pr-compare "<Company A>" "<Company B>"` | Stage-aligned comparative analysis between two companies |
+| `/pr-update "<Company>"` | Incrementally refresh an existing archive with new releases |
 | `/pr-present <playbook-path>` | Generate a recording-ready HTML slide deck from a playbook |
+
+The analyze, compare, and update commands accept a company **name** (or path). The name is slugified (`Boston Scientific` → `boston-scientific`) and matched against archive directories in your current working directory. If the archive doesn't exist, the command tells you and offers to run `/pr-archive` for you.
 
 ### Install
 
@@ -39,7 +41,7 @@ That copies the commands to `~/.claude/commands/` (so they're available in any C
 
 ```
 /pr-archive "Stryker" SYK
-/pr-analyze ./stryker --client-stage seriesA --client-industry medtech
+/pr-analyze Stryker --client-stage seriesA --client-industry medtech
 /pr-present ./stryker/analysis/playbook.md --open
 ```
 
@@ -48,7 +50,7 @@ Or for a comparative analysis:
 ```
 /pr-archive "Stryker" SYK
 /pr-archive "Boston Scientific" BSX
-/pr-compare ./stryker ./boston-scientific --client-stage seriesA
+/pr-compare Stryker "Boston Scientific" --client-stage seriesA
 /pr-present ./stryker-vs-boston-scientific/comparative-playbook.md --open
 ```
 

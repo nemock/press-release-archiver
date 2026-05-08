@@ -1,15 +1,38 @@
 ---
 description: Incrementally refresh an existing press release archive with releases issued since the last run.
-argument-hint: <archive-dir> [--tags preset] [--no-wire-search]
+argument-hint: <Company Name> [--tags preset] [--no-wire-search]
 ---
 
 Refresh an existing press release archive with new releases issued since the last run. Uses the archiver's `--update` mode which only enumerates entries newer than the most recent file already on disk.
 
 ## Argument parsing
 
-Expected: `<archive-dir>` `[flags]`. The archive must already exist with `releases/` and `manifest.json`.
+Expected: `<Company Name>` `[flags]`. Examples:
+- `/pr-update Stryker`
+- `/pr-update "Boston Scientific" --no-wire-search`
+
+The first argument is a **company name**. Resolve it to an archive directory in the current working directory using this sequence:
+
+1. **If it's clearly a path** (starts with `./`, `/`, `~/`, or contains `/`) — treat as an explicit path.
+
+2. **Slugify the name** (lowercase, replace spaces with hyphens, strip non-alphanumeric except hyphens):
+   - `Stryker` → `stryker`
+   - `Boston Scientific` → `boston-scientific`
+
+3. **Try the slugified path:** `./<slug>/` if it exists with `releases/` + `manifest.json`.
+
+4. **Fallback — scan for matching `company_name` in manifests:** look at every subdirectory of cwd containing `manifest.json`. Match `company_name` (case-insensitive) against the input. Use the first match.
 
 If `$ARGUMENTS` is empty, ask the user which archive to update.
+
+## When the archive doesn't exist
+
+If resolution fails:
+
+1. Tell the user the archive for `<Company>` doesn't exist in the current directory.
+2. **List existing archives** in the cwd (subdirs with `releases/` + `manifest.json`).
+3. Suggest: this is the wrong command — they probably want `/pr-archive "<Company>" [TICKER]` to **build** the archive for the first time. `/pr-update` is for refreshing an existing one.
+4. Offer to run `/pr-archive` for them now, with a brief explanation of the difference: archive builds the full corpus from scratch; update only fetches releases issued since the existing archive's most recent date.
 
 ## Skill location
 
@@ -21,7 +44,7 @@ Locate scripts via `$PRESS_RELEASE_SKILL_DIR`, then `~/.claude/skills/press-rele
    ```bash
    cat <archive>/manifest.json
    ```
-   Extract `company_name` and `ticker` from the existing manifest.
+   Extract `company_name` and `ticker` from the existing manifest. These are needed for the discovery query.
 
 2. **Incremental discovery:**
    ```bash
@@ -31,7 +54,7 @@ Locate scripts via `$PRESS_RELEASE_SKILL_DIR`, then `~/.claude/skills/press-rele
    ```
    The `--update` flag finds the most recent date in the existing releases directory and only enumerates entries dated after it.
 
-   If 0 new entries are found, tell the user the archive is already up-to-date and exit.
+   **If 0 new entries are found, tell the user the archive is already up-to-date and exit gracefully.** Show the most recent release on disk for context.
 
 3. **Wire search for the delta** (skip if `--no-wire-search`):
    Same pattern as `/pr-archive`, but only for the delta period:
@@ -78,4 +101,4 @@ Locate scripts via `$PRESS_RELEASE_SKILL_DIR`, then `~/.claude/skills/press-rele
 
 ## Suggest re-running analysis
 
-If new releases were added, suggest re-running `/pr-analyze <archive>` to refresh the strategic analysis with the new data. Note: this overwrites the previous analysis files.
+If new releases were added, suggest re-running `/pr-analyze <Company>` to refresh the strategic analysis with the new data. Note: this overwrites the previous analysis files.
