@@ -1,25 +1,44 @@
 ---
 description: Generate a recording-ready HTML slide presentation from an analyzer playbook, ending with concrete recommendations for the client's PR strategy.
-argument-hint: <playbook-path> [--client-stage seed|seriesA|seriesB|preIPO] [--client-industry medtech|biotech|saas] [--out path] [--open]
+argument-hint: <Company Name> | <Company A> <Company B> | <playbook-path>  [--client-stage X] [--client-industry Y] [--out path] [--open]
 ---
 
-Invoke the **press-release-presenter** skill workflow for the playbook specified in $ARGUMENTS.
+Invoke the **press-release-presenter** skill workflow for the playbook in $ARGUMENTS.
 
 ## Argument parsing
 
-Expected: `<playbook-path>` `[flags]`. The playbook is typically:
-- `<archive>/analysis/playbook.md` — single-company
-- `<comparison-dir>/comparative-playbook.md` — comparative
+Three accepted shapes (auto-detect):
+
+- **One company name** → resolve to `./<slug>/analysis/playbook.md`
+- **Two company names** → resolve to `./<slug-a>-vs-<slug-b>/comparative-playbook.md`
+- **A path** (starts with `./`, `/`, `~/`, or contains `/` and ends in `.md`) → use as-is
 
 Examples:
-- `/pr-present ./acme/analysis/playbook.md --client-stage seriesA`
-- `/pr-present ./acme-vs-globex/comparative-playbook.md --client-industry medtech --open`
+- `/pr-present Stryker --client-stage seriesA`
+- `/pr-present Stryker "Boston Scientific" --client-industry medtech --open`
+- `/pr-present ./acme/analysis/playbook.md --open`
 
-If `$ARGUMENTS` is empty, ask the user which playbook to present, and offer to scan common locations (`./*/analysis/playbook.md`, `./*-vs-*/comparative-playbook.md`).
+For company names, slugify lowercased + hyphenated (`Boston Scientific` → `boston-scientific`, `Acme Medtech, Inc.` → `acme-medtech-inc`).
+
+If the resolved path doesn't exist, also try the manifest-scan fallback: walk subdirectories of cwd looking for one whose `manifest.json` has a `company_name` matching the input. If found, use that directory's `analysis/playbook.md` (or for two names, find both matching directories and look for an `<a-slug>-vs-<b-slug>/` comparison directory).
+
+If `$ARGUMENTS` is empty, ask the user which playbook to present and offer to scan common locations (`./*/analysis/playbook.md`, `./*-vs-*/comparative-playbook.md`).
 
 **Default --out:** same directory as the playbook, named `presentation.html`.
 
-**The `--open` flag** opens the file in the user's default browser via `open <path>` (macOS) or `xdg-open <path>` (Linux). Default behavior: don't open.
+**The `--open` flag** opens the file in the user's default browser via `open <path>` (macOS) or `xdg-open <path>` (Linux). Default: don't open.
+
+## When the playbook doesn't exist
+
+If you can resolve the archive directory(ies) but the corresponding playbook is missing:
+
+1. Tell the user: the archive(s) exist but no playbook has been written yet.
+2. Suggest the prerequisite:
+   - For a single-company presentation: `/pr-analyze <Company>`
+   - For a comparative presentation: `/pr-compare <Company A> <Company B>`
+3. **Offer to run the prerequisite inline.** If user agrees, perform the analyze/compare workflow first, then continue into the presentation generation.
+
+If the archive directory itself is missing, follow the `/pr-analyze` failure-mode pattern: list existing archives, suggest `/pr-archive`, offer to run it inline.
 
 ## Skill location
 

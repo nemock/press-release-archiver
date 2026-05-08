@@ -87,6 +87,38 @@ The `compare.py` script aligns companies by **company-relative time** (months si
 
 ---
 
+## What the presentations look like
+
+Two example HTML decks live in [`examples/`](./examples/) — one single-company, one comparative. Open either in a browser, press `F` for fullscreen, navigate with arrow keys.
+
+### Single-company deck — credibility ladder rendered as a timeline
+
+![Credibility ladder timeline slide](examples/screenshots/single-02-timeline-ladder.png)
+
+The single-company deck (22 slides, 6 chapters) walks through the company's cadence, credibility ladder, stakeholder strategy, foundation-phase plays, and ends with 5 client-facing recommendation slides.
+
+### Comparative deck — side-by-side metric contrasts
+
+![Cadence comparison slide](examples/screenshots/comp-04-comparison-cadence.png)
+
+The comparative deck (23 slides, 7 chapters) shows what each company did at *equivalent post-corporate-action maturity*. The big-number slides land the headline deltas:
+
+![5 vs 0 strategic clusters](examples/screenshots/comp-02-bignumber-5-vs-0.png) ![64% vs 12% CEO quote rate](examples/screenshots/comp-03-bignumber-ceo-quote.png)
+
+### Foundation plays as a numbered list
+
+![Eight foundation plays](examples/screenshots/single-03-foundation-plays.png)
+
+### Closing chapter — actionable recommendations
+
+Each deck ends with 4–6 recommendation slides plus a closing tile:
+
+![Recommendation slide](examples/screenshots/comp-06-recommendation.png) ![Closing slide](examples/screenshots/single-05-closing.png)
+
+The full HTML files are at [`examples/single-company-presentation.html`](./examples/single-company-presentation.html) and [`examples/comparative-presentation.html`](./examples/comparative-presentation.html). Open them in a browser to see the keyboard nav, chapter sidebar, and slide transitions in action.
+
+---
+
 ## What you actually get out
 
 For one company, an analysis package looks like:

@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Comparative PR Playbook — Build vs. Mature Stage</title>
+  <style>
+    :root {
+      --bg: #0a0e1a;
+      --bg-elev: #131829;
+      --text: #f0f4ff;
+      --text-dim: #8892b0;
+      --accent: #64ffda;
+      --accent-warm: #ffb86c;
+      --accent-strong: #ff5e7e;
+      --grid: #1f2940;
+      --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Menlo', monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-display);
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+    body { display: flex; }
+
+    /* Chapter sidebar */
+    aside.chapters {
+      width: 240px;
+      flex-shrink: 0;
+      background: var(--bg-elev);
+      border-right: 1px solid var(--grid);
+      padding: 32px 20px;
+      overflow-y: auto;
+      font-size: 13px;
+    }
+    aside.chapters .label {
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--text-dim);
+      font-size: 11px;
+      margin-bottom: 16px;
+    }
+    aside.chapters ul { list-style: none; }
+    aside.chapters li {
+      padding: 10px 12px;
+      margin-bottom: 4px;
+      border-radius: 6px;
+      cursor: pointer;
+      color: var(--text-dim);
+      transition: background 0.15s, color 0.15s;
+      line-height: 1.4;
+    }
+    aside.chapters li:hover {
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+    }
+    aside.chapters li.active {
+      background: rgba(100, 255, 218, 0.08);
+      color: var(--accent);
+      border-left: 2px solid var(--accent);
+      padding-left: 10px;
+    }
+
+    /* Main slide area */
+    main.slides {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 60px 80px;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.4s ease, transform 0.4s ease;
+      pointer-events: none;
+    }
+    .slide.active {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    /* Counter */
+    .counter {
+      position: fixed;
+      top: 24px;
+      right: 32px;
+      font-family: var(--font-mono);
+      color: var(--text-dim);
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+    }
+
+    /* ---------------- Slide layouts ---------------- */
+
+    /* SECTION (chapter divider) */
+    .layout-section { text-align: center; }
+    .layout-section .eyebrow {
+      font-family: var(--font-mono);
+      color: var(--accent);
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      margin-bottom: 24px;
+    }
+    .layout-section h2 {
+      font-size: 64px;
+      font-weight: 700;
+      letter-spacing: -1.5px;
+      line-height: 1.1;
+      max-width: 1000px;
+    }
+    .layout-section .subtitle {
+      margin-top: 28px;
+      font-size: 22px;
+      color: var(--text-dim);
+      font-weight: 300;
+      max-width: 800px;
+    }
+
+    /* BIG-NUMBER */
+    .layout-big-number { text-align: center; }
+    .layout-big-number .number {
+      font-size: 240px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -6px;
+      color: var(--accent);
+      font-feature-settings: 'tnum';
+    }
+    .layout-big-number .caption {
+      margin-top: 32px;
+      font-size: 28px;
+      color: var(--text);
+      font-weight: 300;
+      max-width: 800px;
+    }
+    .layout-big-number .footnote {
+      margin-top: 20px;
+      font-size: 16px;
+      color: var(--text-dim);
+      font-style: italic;
+    }
+
+    /* COMPARISON (side by side) */
+    .layout-comparison { width: 100%; align-items: stretch; padding: 60px; }
+    .layout-comparison h3 {
+      font-size: 40px;
+      font-weight: 600;
+      text-align: center;
+      margin-bottom: 40px;
+      letter-spacing: -0.5px;
+    }
+    .layout-comparison .pair {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 60px;
+      flex: 1;
+      align-items: center;
+    }
+    .layout-comparison .side {
+      padding: 40px;
+      border-radius: 12px;
+      background: var(--bg-elev);
+      border: 1px solid var(--grid);
+    }
+    .layout-comparison .side .title {
+      font-size: 18px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin-bottom: 16px;
+    }
+    .layout-comparison .side .value {
+      font-size: 96px;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: -3px;
+      color: var(--accent);
+    }
+    .layout-comparison .side .desc {
+      margin-top: 20px;
+      font-size: 18px;
+      color: var(--text-dim);
+      line-height: 1.4;
+    }
+    .layout-comparison .side.warm .value { color: var(--accent-warm); }
+    .layout-comparison .vs {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--text-dim);
+      background: var(--bg);
+      padding: 12px 20px;
+      border-radius: 50%;
+      border: 1px solid var(--grid);
+    }
+
+    /* QUOTE */
+    .layout-quote {
+      max-width: 1100px;
+      text-align: center;
+    }
+    .layout-quote .mark {
+      font-size: 96px;
+      color: var(--accent);
+      line-height: 0.5;
+      margin-bottom: 24px;
+      font-family: serif;
+    }
+    .layout-quote .body {
+      font-size: 40px;
+      font-weight: 400;
+      line-height: 1.35;
+      letter-spacing: -0.5px;
+      color: var(--text);
+    }
+    .layout-quote .attribution {
+      margin-top: 32px;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+
+    /* TIMELINE (horizontal) */
+    .layout-timeline { width: 100%; padding: 60px; align-items: stretch; }
+    .layout-timeline h3 {
+      font-size: 36px;
+      font-weight: 600;
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    .layout-timeline .track {
+      position: relative;
+      height: 4px;
+      background: var(--grid);
+      margin: 60px 40px 20px;
+      border-radius: 2px;
+    }
+    .layout-timeline .marker {
+      position: absolute;
+      top: -10px;
+      width: 24px;
+      height: 24px;
+      background: var(--accent);
+      border-radius: 50%;
+      transform: translateX(-50%);
+      border: 4px solid var(--bg);
+    }
+    .layout-timeline .marker .lbl {
+      position: absolute;
+      bottom: 36px;
+      left: 50%;
+      transform: translateX(-50%);
+      white-space: nowrap;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--accent);
+    }
+    .layout-timeline .marker .desc {
+      position: absolute;
+      top: 36px;
+      left: 50%;
+      transform: translateX(-50%);
+      max-width: 180px;
+      text-align: center;
+      font-size: 14px;
+      color: var(--text-dim);
+      line-height: 1.3;
+    }
+
+    /* LIST (bulleted) */
+    .layout-list {
+      max-width: 1000px;
+      width: 100%;
+    }
+    .layout-list h3 {
+      font-size: 44px;
+      font-weight: 600;
+      margin-bottom: 40px;
+      letter-spacing: -1px;
+    }
+    .layout-list ol, .layout-list ul {
+      list-style: none;
+      counter-reset: item;
+    }
+    .layout-list li {
+      counter-increment: item;
+      padding: 16px 0;
+      font-size: 22px;
+      line-height: 1.5;
+      color: var(--text);
+      border-bottom: 1px solid var(--grid);
+      display: flex;
+      gap: 24px;
+    }
+    .layout-list li:last-child { border-bottom: none; }
+    .layout-list ol li::before {
+      content: counter(item, decimal-leading-zero);
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--accent);
+      flex-shrink: 0;
+      width: 32px;
+      padding-top: 6px;
+    }
+    .layout-list ul li::before {
+      content: '→';
+      color: var(--accent);
+      flex-shrink: 0;
+      width: 32px;
+      font-weight: 700;
+    }
+    .layout-list .item-title {
+      font-weight: 600;
+      color: var(--text);
+    }
+    .layout-list .item-desc {
+      color: var(--text-dim);
+      font-weight: 300;
+      margin-top: 4px;
+      font-size: 18px;
+    }
+
+    /* RECOMMENDATION (action-oriented) */
+    .layout-recommendation {
+      max-width: 1100px;
+      width: 100%;
+    }
+    .layout-recommendation .number-tag {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--bg);
+      background: var(--accent);
+      padding: 6px 14px;
+      border-radius: 4px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      font-weight: 700;
+      margin-bottom: 28px;
+    }
+    .layout-recommendation h3 {
+      font-size: 56px;
+      font-weight: 700;
+      letter-spacing: -1.5px;
+      line-height: 1.15;
+      margin-bottom: 28px;
+    }
+    .layout-recommendation .body {
+      font-size: 22px;
+      color: var(--text-dim);
+      line-height: 1.5;
+      max-width: 900px;
+    }
+    .layout-recommendation .body strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    /* CHART (simple horizontal bar) */
+    .layout-chart {
+      width: 100%;
+      max-width: 1100px;
+    }
+    .layout-chart h3 {
+      font-size: 36px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+    .layout-chart .subtitle {
+      text-align: center;
+      color: var(--text-dim);
+      margin-bottom: 40px;
+      font-size: 18px;
+    }
+    .layout-chart .bar-row {
+      display: grid;
+      grid-template-columns: 200px 1fr 80px;
+      gap: 20px;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .layout-chart .bar-label {
+      font-size: 16px;
+      color: var(--text-dim);
+      text-align: right;
+    }
+    .layout-chart .bar-track {
+      height: 32px;
+      background: var(--bg-elev);
+      border-radius: 4px;
+      overflow: hidden;
+      position: relative;
+    }
+    .layout-chart .bar-fill {
+      height: 100%;
+      background: var(--accent);
+      transition: width 0.6s ease;
+    }
+    .layout-chart .bar-fill.warm { background: var(--accent-warm); }
+    .layout-chart .bar-value {
+      font-family: var(--font-mono);
+      font-size: 16px;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* CALLOUT (single phrase, big) */
+    .layout-callout {
+      text-align: center;
+      max-width: 1200px;
+    }
+    .layout-callout .text {
+      font-size: 72px;
+      font-weight: 700;
+      line-height: 1.15;
+      letter-spacing: -2px;
+    }
+    .layout-callout .text .highlight {
+      color: var(--accent);
+    }
+    .layout-callout .text .strong-warm {
+      color: var(--accent-warm);
+    }
+    .layout-callout .sub {
+      margin-top: 32px;
+      font-size: 22px;
+      color: var(--text-dim);
+      font-weight: 300;
+    }
+
+    /* CLOSING */
+    .layout-closing {
+      text-align: center;
+    }
+    .layout-closing .signature {
+      font-size: 96px;
+      font-weight: 800;
+      letter-spacing: -3px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-warm));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .layout-closing .next-step {
+      margin-top: 40px;
+      font-size: 24px;
+      color: var(--text);
+      max-width: 800px;
+    }
+
+    /* Help overlay */
+    .help {
+      position: fixed;
+      bottom: 24px;
+      right: 32px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      letter-spacing: 1px;
+    }
+    .help kbd {
+      background: var(--bg-elev);
+      padding: 2px 6px;
+      border-radius: 3px;
+      border: 1px solid var(--grid);
+    }
+  </style>
+</head>
+<body>
+  <aside class="chapters">
+    <div class="label">Chapters</div>
+    <ul id="chapter-list"></ul>
+  </aside>
+
+  <main class="slides" id="slide-container"></main>
+
+  <div class="counter" id="counter">1/1</div>
+  <div class="help"><kbd>←</kbd> <kbd>→</kbd> navigate &middot; <kbd>F</kbd> fullscreen</div>
+
+  <script>
+    /* ============================================================
+       SLIDE DATA — replace this array with your deck content.
+       Each slide is { chapter: string, layout: string, ...layoutFields }.
+       Available layouts:
+         - section          { title, eyebrow?, subtitle? }
+         - big-number       { number, caption, footnote? }
+         - comparison       { heading?, leftTitle, leftValue, leftDesc, rightTitle, rightValue, rightDesc, warm? }
+         - quote            { body, attribution? }
+         - timeline         { heading, markers: [{date, label, desc}] }   // markers placed evenly
+         - list             { heading, ordered?, items: [{title, desc?}] }
+         - recommendation   { number, title, body }
+         - chart            { heading, subtitle?, bars: [{label, value, max?, warm?, valueLabel?}] }
+         - callout          { text, sub? }   // text may include <span class="highlight">…</span> or <span class="strong-warm">…</span>
+         - closing          { signature, nextStep? }
+       ============================================================ */
+    const SLIDES = [
+  {
+    "chapter": "Two playbooks",
+    "layout": "section",
+    "eyebrow": "Comparative analysis",
+    "title": "Two playbooks. Two stages.",
+    "subtitle": "An early-stage build company and a mature scale company at equivalent post-corporate-action maturity. Same industry, same calendar-distance from a major corporate action — almost nothing in common."
+  },
+  {
+    "chapter": "Two playbooks",
+    "layout": "big-number",
+    "number": "3.4×",
+    "caption": "the build-stage company communicates more often per unit time",
+    "footnote": "24-day median release gap vs. 81 days"
+  },
+  {
+    "chapter": "Two playbooks",
+    "layout": "big-number",
+    "number": "5 vs 0",
+    "caption": "strategic clusters in 55 months",
+    "footnote": "(3+ releases within 14 days, tied to a single milestone)"
+  },
+  {
+    "chapter": "Two playbooks",
+    "layout": "big-number",
+    "number": "64% vs 12%",
+    "caption": "CEO quote rate",
+    "footnote": "One company narrates as a founder voice. The other narrates as an institution."
+  },
+  {
+    "chapter": "Cadence",
+    "layout": "section",
+    "eyebrow": "Chapter 02",
+    "title": "Campaign vs. steady-state",
+    "subtitle": "Two completely different rhythms — and which one fits your stage."
+  },
+  {
+    "chapter": "Cadence",
+    "layout": "comparison",
+    "heading": "Median gap between releases",
+    "leftTitle": "Build-stage company",
+    "leftValue": "24",
+    "leftDesc": "days. Bimodal: 7–14 day clusters tied to milestones, then 60–90 day silences.",
+    "rightTitle": "Mature company",
+    "rightValue": "81",
+    "rightDesc": "days. Tight distribution: roughly one release per quarter, on the SEC calendar.",
+    "warm": "right"
+  },
+  {
+    "chapter": "Cadence",
+    "layout": "callout",
+    "text": "A cluster is a <span class='highlight'>request</span> for the market's attention.",
+    "sub": "Build-stage companies need that attention. Mature companies don't have to ask."
+  },
+  {
+    "chapter": "Year 2 contrast",
+    "layout": "comparison",
+    "heading": "Year 2 release count",
+    "leftTitle": "Build-stage co.",
+    "leftValue": "15",
+    "leftDesc": "releases. Mid-product-demonstration drumbeat.",
+    "rightTitle": "Mature co.",
+    "rightValue": "1",
+    "rightDesc": "A single Q4 earnings release: <em>\"Record $45.2M revenue, up 64%.\"</em>",
+    "warm": "right"
+  },
+  {
+    "chapter": "Year 2 contrast",
+    "layout": "quote",
+    "body": "One company is announcing <em>that they will exist</em>. The other is reporting <em>what already happened</em>.",
+    "attribution": "Same calendar-distance from corporate action — different jobs to do."
+  },
+  {
+    "chapter": "Credibility ladder",
+    "layout": "section",
+    "eyebrow": "Chapter 04",
+    "title": "Two ladders, one shape",
+    "subtitle": "Both companies climbed roughly equal rungs. The <em>kinds</em> of rungs differ wildly."
+  },
+  {
+    "chapter": "Credibility ladder",
+    "layout": "chart",
+    "heading": "Ladder rungs by archetype, 55-month aligned window",
+    "subtitle": "Build-stage: event-dense, proof-driven. Mature: financial-engineering.",
+    "bars": [
+      {
+        "label": "Capital events",
+        "value": 9,
+        "max": 9,
+        "valueLabel": "9 vs 2"
+      },
+      {
+        "label": "Product events",
+        "value": 5,
+        "max": 9,
+        "valueLabel": "5 vs 0"
+      },
+      {
+        "label": "Regulatory events",
+        "value": 6,
+        "max": 9,
+        "valueLabel": "6 vs 2"
+      },
+      {
+        "label": "Clinical events",
+        "value": 3,
+        "max": 9,
+        "valueLabel": "3 vs 0"
+      },
+      {
+        "label": "Partnership events",
+        "value": 2,
+        "max": 9,
+        "valueLabel": "2 vs 0"
+      },
+      {
+        "label": "Routine earnings",
+        "value": 5,
+        "max": 9,
+        "valueLabel": "0 vs 5",
+        "warm": true
+      }
+    ]
+  },
+  {
+    "chapter": "Credibility ladder",
+    "layout": "callout",
+    "text": "Capital events alone are the <span class='strong-warm'>wrong ladder</span> for an early-stage company.",
+    "sub": "If your last 18 months of releases are all dilutive raises and governance shuffles, you're climbing the mature-company ladder before you have the foundation."
+  },
+  {
+    "chapter": "Stakeholder strategy",
+    "layout": "section",
+    "eyebrow": "Chapter 05",
+    "title": "Who speaks for the company?",
+    "subtitle": "The single most teachable contrast in the comparison."
+  },
+  {
+    "chapter": "Stakeholder strategy",
+    "layout": "comparison",
+    "heading": "Quote density across the corpus",
+    "leftTitle": "Build-stage co.",
+    "leftValue": "66%",
+    "leftDesc": "of releases have at least one quote. The founder is the protagonist of the corpus.",
+    "rightTitle": "Mature co.",
+    "rightValue": "16%",
+    "rightDesc": "of releases have any quote at all. The press release itself is the speaker.",
+    "warm": "right"
+  },
+  {
+    "chapter": "Stakeholder strategy",
+    "layout": "quote",
+    "body": "They waited until they had something <em>material</em> for that voice to validate.",
+    "attribution": "On the build-stage company's first surgeon-quoted release — year 4 post-funding, after cadaveric procedures."
+  },
+  {
+    "chapter": "Topic mix",
+    "layout": "callout",
+    "text": "Your topic mix should <span class='highlight'>shift</span> year over year for at least your first 5 years.",
+    "sub": "If Year 4 looks like Year 1, you've stalled. If it's capital-markets-dominant by Year 5, the market reads a runway problem — whether you intend it or not."
+  },
+  {
+    "chapter": "Recommendations",
+    "layout": "section",
+    "eyebrow": "Recommendations",
+    "title": "What to run next quarter",
+    "subtitle": "Concrete plays for seed → Series A → pre-IPO clients. Borrowed primarily from the build-stage playbook, with two specific lessons from the mature one."
+  },
+  {
+    "chapter": "Recommendations",
+    "layout": "recommendation",
+    "number": "PLAY 01",
+    "title": "Cluster three releases in 14 days around your next real milestone",
+    "body": "Pick one real milestone in the next 90 days. Schedule a <strong>T-14</strong> \"it's coming\" announcement, a <strong>T-7</strong> team or governance angle, and the <strong>T-0</strong> event itself. Then go quiet for 30 days on either side. Measure attention per release vs. your trailing 12-month baseline."
+  },
+  {
+    "chapter": "Recommendations",
+    "layout": "recommendation",
+    "number": "PLAY 02",
+    "title": "Wait for the data before introducing a third-party voice",
+    "body": "The single most teachable moment in the build-stage archive: the first non-employee surgeon quote came <strong>after</strong> they had performed a real procedure with the system, not before. Don't recruit \"advisors\" for press-release credibility. Use real participants reporting real experience."
+  },
+  {
+    "chapter": "Recommendations",
+    "layout": "recommendation",
+    "number": "PLAY 03",
+    "title": "Pair every piece of bad news with a forward-looking action — within 14 days",
+    "body": "The most rigorously executed pattern in the build-stage archive. NYSE delisting → Nasdaq plan, 13 days. CFO departure → new CFO appointment. Adopt this as an explicit rule: <strong>never ship a piece of bad news without scheduling its companion forward release first.</strong>"
+  },
+  {
+    "chapter": "Recommendations",
+    "layout": "recommendation",
+    "number": "PLAY 04",
+    "title": "Pace dilutive capital events with non-dilutive proof points",
+    "body": "Your trailing-12-month tag mix is a public document. If every capital-event release in that window is a raise — and there's no clinical, partnership, or product proof point alongside — the cumulative narrative reads as <em>\"we keep needing more money.\"</em> Pace it: alternate dilutive and non-dilutive months."
+  },
+  {
+    "chapter": "Recommendations",
+    "layout": "recommendation",
+    "number": "PLAY 05",
+    "title": "Begin building secondary internal voices by Year 3",
+    "body": "The single thing the build-stage company got <em>wrong</em>: 7 years of CEO-only narration created a continuity risk that bit them hard at the next leadership transition. By Year 3 of public communication, your COO, CMO, and Head of R&D should each have narrated at least one release. <strong>Don't wait for the transition to discover you have no other voice.</strong>"
+  },
+  {
+    "chapter": "Recommendations",
+    "layout": "closing",
+    "signature": "Your move.",
+    "nextStep": "Pick one play. Run it next quarter. Measure cluster intensity, validator timing, and the trailing-12-month tag mix. Adjust."
+  }
+];
+
+    /* ============================================================
+       Renderer + nav  — do not modify unless you know what you're doing.
+       ============================================================ */
+    const container = document.getElementById('slide-container');
+    const counter = document.getElementById('counter');
+    const chapterList = document.getElementById('chapter-list');
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      return String(s).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+    function rich(s) {
+      // Allow inline <strong>, <em>, <span class="highlight">, <span class="strong-warm">
+      if (s == null) return '';
+      return String(s).replace(/&(?!(?:amp|lt|gt|quot|#39);)/g, '&amp;');
+    }
+
+    function renderSlide(s, idx) {
+      const el = document.createElement('section');
+      el.className = `slide layout-${s.layout}`;
+      el.dataset.idx = idx;
+      el.dataset.chapter = s.chapter || '';
+
+      switch (s.layout) {
+        case 'section':
+          el.innerHTML = `
+            ${s.eyebrow ? `<div class="eyebrow">${escapeHtml(s.eyebrow)}</div>` : ''}
+            <h2>${rich(s.title)}</h2>
+            ${s.subtitle ? `<div class="subtitle">${rich(s.subtitle)}</div>` : ''}
+          `;
+          break;
+        case 'big-number':
+          el.innerHTML = `
+            <div class="number">${escapeHtml(s.number)}</div>
+            <div class="caption">${rich(s.caption || '')}</div>
+            ${s.footnote ? `<div class="footnote">${rich(s.footnote)}</div>` : ''}
+          `;
+          break;
+        case 'comparison': {
+          const warmClass = s.warm === 'left' ? 'warm' : '';
+          const warmClassR = s.warm === 'right' ? 'warm' : '';
+          el.innerHTML = `
+            ${s.heading ? `<h3>${rich(s.heading)}</h3>` : ''}
+            <div class="pair" style="position:relative;">
+              <div class="side ${warmClass}">
+                <div class="title">${escapeHtml(s.leftTitle)}</div>
+                <div class="value">${escapeHtml(s.leftValue)}</div>
+                ${s.leftDesc ? `<div class="desc">${rich(s.leftDesc)}</div>` : ''}
+              </div>
+              <div class="side ${warmClassR}">
+                <div class="title">${escapeHtml(s.rightTitle)}</div>
+                <div class="value">${escapeHtml(s.rightValue)}</div>
+                ${s.rightDesc ? `<div class="desc">${rich(s.rightDesc)}</div>` : ''}
+              </div>
+              <div class="vs">vs</div>
+            </div>
+          `;
+          break;
+        }
+        case 'quote':
+          el.innerHTML = `
+            <div class="mark">"</div>
+            <div class="body">${rich(s.body)}</div>
+            ${s.attribution ? `<div class="attribution">${escapeHtml(s.attribution)}</div>` : ''}
+          `;
+          break;
+        case 'timeline': {
+          const n = s.markers.length;
+          const markers = s.markers.map((m, i) => {
+            const pct = n === 1 ? 50 : (i / (n - 1)) * 100;
+            return `<div class="marker" style="left:${pct}%;">
+              <div class="lbl">${escapeHtml(m.date)}</div>
+              <div class="desc">${rich(m.desc || m.label || '')}</div>
+            </div>`;
+          }).join('');
+          el.innerHTML = `
+            <h3>${rich(s.heading)}</h3>
+            <div class="track">${markers}</div>
+          `;
+          break;
+        }
+        case 'list': {
+          const tag = s.ordered ? 'ol' : 'ul';
+          const items = s.items.map(it => {
+            if (typeof it === 'string') return `<li><span class="item-title">${rich(it)}</span></li>`;
+            return `<li><div><div class="item-title">${rich(it.title)}</div>${it.desc ? `<div class="item-desc">${rich(it.desc)}</div>` : ''}</div></li>`;
+          }).join('');
+          el.innerHTML = `<h3>${rich(s.heading)}</h3><${tag}>${items}</${tag}>`;
+          break;
+        }
+        case 'recommendation':
+          el.innerHTML = `
+            <div class="number-tag">${escapeHtml(s.number || 'PLAY')}</div>
+            <h3>${rich(s.title)}</h3>
+            <div class="body">${rich(s.body)}</div>
+          `;
+          break;
+        case 'chart': {
+          const max = Math.max(...s.bars.map(b => b.max || b.value));
+          const rows = s.bars.map(b => {
+            const pct = (b.value / max) * 100;
+            return `<div class="bar-row">
+              <div class="bar-label">${escapeHtml(b.label)}</div>
+              <div class="bar-track"><div class="bar-fill ${b.warm ? 'warm' : ''}" style="width:${pct}%"></div></div>
+              <div class="bar-value">${escapeHtml(b.valueLabel || b.value)}</div>
+            </div>`;
+          }).join('');
+          el.innerHTML = `
+            <h3>${rich(s.heading)}</h3>
+            ${s.subtitle ? `<div class="subtitle">${rich(s.subtitle)}</div>` : ''}
+            ${rows}
+          `;
+          break;
+        }
+        case 'callout':
+          el.innerHTML = `
+            <div class="text">${rich(s.text)}</div>
+            ${s.sub ? `<div class="sub">${rich(s.sub)}</div>` : ''}
+          `;
+          break;
+        case 'closing':
+          el.innerHTML = `
+            <div class="signature">${rich(s.signature)}</div>
+            ${s.nextStep ? `<div class="next-step">${rich(s.nextStep)}</div>` : ''}
+          `;
+          break;
+        default:
+          el.innerHTML = `<div style="color:#ff5e7e">Unknown layout: ${escapeHtml(s.layout)}</div>`;
+      }
+      container.appendChild(el);
+    }
+
+    function buildChapters() {
+      const chapters = [];
+      const seen = new Set();
+      SLIDES.forEach((s, i) => {
+        const c = s.chapter || '';
+        if (!seen.has(c)) {
+          chapters.push({ name: c, firstIdx: i });
+          seen.add(c);
+        }
+      });
+      chapters.forEach((c, i) => {
+        const li = document.createElement('li');
+        li.textContent = c.name || '(untitled)';
+        li.dataset.firstIdx = c.firstIdx;
+        li.addEventListener('click', () => goTo(c.firstIdx));
+        chapterList.appendChild(li);
+      });
+    }
+
+    let current = 0;
+    function goTo(idx) {
+      idx = Math.max(0, Math.min(SLIDES.length - 1, idx));
+      const slides = container.querySelectorAll('.slide');
+      slides.forEach((el, i) => el.classList.toggle('active', i === idx));
+      current = idx;
+      counter.textContent = `${idx + 1}/${SLIDES.length}`;
+      // Highlight active chapter
+      const activeChapter = SLIDES[idx].chapter || '';
+      chapterList.querySelectorAll('li').forEach(li => {
+        const liChapter = SLIDES[parseInt(li.dataset.firstIdx, 10)].chapter || '';
+        li.classList.toggle('active', liChapter === activeChapter);
+      });
+    }
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
+        e.preventDefault();
+        goTo(current + 1);
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        e.preventDefault();
+        goTo(current - 1);
+      } else if (e.key === 'Home') { goTo(0); }
+      else if (e.key === 'End') { goTo(SLIDES.length - 1); }
+      else if (e.key === 'f' || e.key === 'F') {
+        if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+        else document.exitFullscreen();
+      }
+    });
+
+    SLIDES.forEach(renderSlide);
+    buildChapters();
+    goTo(0);
+  </script>
+</body>
+</html>
