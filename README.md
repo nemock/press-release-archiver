@@ -1,11 +1,12 @@
-# press-release-archiver + press-release-analyzer
+# press-release skills (archiver + analyzer + presenter)
 
-Two sibling Claude skills that together let you reverse-engineer the PR strategy of any publicly-traded company:
+Three sibling Claude skills that together turn any publicly-traded company's press releases into a client-ready strategic playbook and recording-optimized slide deck:
 
 | Skill | What it does | When to use |
 |---|---|---|
 | **[`archiver/`](./archiver/)** | Compiles every press release a company has ever issued into a structured local markdown archive (one file per release + `INDEX.md`). Three-tier fetcher: SEC EDGAR → Wayback Machine → Chrome Connector. | When you want offline-resilient access to a competitor's full PR history. |
 | **[`analyzer/`](./analyzer/)** | Reverse-engineers the PR strategy from an archive — credibility ladder, drumbeat patterns, stakeholder orchestration, foundation-phase plays. Supports stage-aligned cross-company comparison. | When you want to extract emulatable plays from a mature company's PR program for an early-stage client. |
+| **[`presenter/`](./presenter/)** | Turns a strategic playbook into a recording-ready HTML slide deck, ending with concrete recommendations the client can run next quarter. Single self-contained HTML file, dark theme, keyboard navigation, chapter sidebar. | When you want to deliver the strategy to a client in a presentable format — Loom-style explainer, Zoom call, or live walkthrough. |
 
 Designed for marketing/strategy work with **early-stage companies** (seed → Series A → pre-IPO) who want to learn from how mature growth-stage companies built their narrative arcs.
 
@@ -47,7 +48,16 @@ python3 analyzer/compare.py acme/ globex/ \
 # Then ask Claude: "produce the comparative playbook for these two companies"
 ```
 
-The `compare.py` script aligns companies by **company-relative time** (months since IPO/anchor) rather than calendar year — so Globex Corp's 2003-2008 maps directly onto Acme Medtech's 2021-2026 even though the calendar years are 19 years apart.
+The `compare.py` script aligns companies by **company-relative time** (months since IPO/anchor) rather than calendar year — so a mature company's archive from a decade or two ago maps directly onto an early-stage company's recent post-IPO window because both cover roughly equivalent stages of public-company maturity.
+
+To finish — turn the playbook into a recording-ready slide deck:
+
+```bash
+# Ask Claude: "make a presentation from the analysis at <path-to-playbook>.
+# My client is a Series A medtech."
+# (The presenter skill reads the playbook and writes presentation.html)
+open <path>/presentation.html
+```
 
 ---
 
@@ -103,6 +113,16 @@ For comparative mode, an additional `acme-vs-globex/` directory holds the cross-
 │                              ▼                                  │
 │  credibility-ladder.md, drumbeat-map.md, validator-sequence.md, │
 │  foundation-plays.md, playbook.md, comparative-playbook.md      │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  PRESENTER  (Claude composes; HTML template renders)            │
+│                                                                  │
+│  template.html  +  Claude-authored SLIDES JSON array            │
+│        ↓                                                         │
+│  presentation.html — single self-contained file, dark theme,    │
+│  keyboard nav, chapter sidebar, recording-optimized              │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
