@@ -12,52 +12,76 @@ Designed for marketing/strategy work with **early-stage companies** (seed → Se
 
 ---
 
-## Quick start
+## Quick start (slash commands)
+
+For Claude Code users, the repo includes 5 slash commands that wrap each pipeline:
+
+| Command | What it does |
+|---|---|
+| `/pr-archive "<Company>" [TICKER]` | Build the full press-release archive (EDGAR + Wayback + optional Chrome) |
+| `/pr-analyze <archive-dir>` | Compute stats + write the strategic playbook (5 markdown files) |
+| `/pr-compare <archive-a> <archive-b>` | Stage-aligned comparative analysis between two companies |
+| `/pr-update <archive-dir>` | Incrementally refresh an existing archive with new releases |
+| `/pr-present <playbook-path>` | Generate a recording-ready HTML slide deck from a playbook |
+
+### Install
 
 ```bash
-git clone https://github.com/nemock/press-release-archiver.git
-cd press-release-archiver
+git clone https://github.com/nemock/press-release-archiver.git ~/.claude/skills/press-release-archiver
+cd ~/.claude/skills/press-release-archiver
+bash install.sh
+echo 'export PRESS_RELEASE_SKILL_DIR="$HOME/.claude/skills/press-release-archiver"' >> ~/.zshrc
+```
 
-# 1. Build an archive of any public company
-cd archiver
-python3 discover.py "Acme Medtech" --ticker ACME --out ../acme/manifest.json
-python3 fetch.py ../acme/manifest.json --out ../acme/releases/ --tags medtech
-python3 build_index.py --releases ../acme/releases/ --manifest ../acme/manifest.json \
+That copies the commands to `~/.claude/commands/` (so they're available in any Claude Code session, not just inside the cloned repo) and points the `$PRESS_RELEASE_SKILL_DIR` env var at the skill's Python scripts.
+
+### End-to-end example
+
+```
+/pr-archive "Stryker" SYK
+/pr-analyze ./stryker --client-stage seriesA --client-industry medtech
+/pr-present ./stryker/analysis/playbook.md --open
+```
+
+Or for a comparative analysis:
+
+```
+/pr-archive "Stryker" SYK
+/pr-archive "Boston Scientific" BSX
+/pr-compare ./stryker ./boston-scientific --client-stage seriesA
+/pr-present ./stryker-vs-boston-scientific/comparative-playbook.md --open
+```
+
+### Without slash commands (raw pipeline)
+
+If you'd rather invoke the Python scripts directly:
+
+```bash
+# 1. Build an archive
+python3 archiver/discover.py "Acme Medtech" --ticker ACME --out ../acme/manifest.json
+python3 archiver/fetch.py ../acme/manifest.json --out ../acme/releases/ --tags medtech
+python3 archiver/build_index.py --releases ../acme/releases/ --manifest ../acme/manifest.json \
     --out ../acme/INDEX.md
 
 # 2. Run deterministic analysis
-cd ../analyzer
-python3 stats.py ../acme/ --ceo-names "Jane Smith" "John Doe"
-python3 ladder.py ../acme/
-python3 sample.py ../acme/
+python3 analyzer/stats.py ../acme/ --ceo-names "Jane Smith" "John Doe"
+python3 analyzer/ladder.py ../acme/
+python3 analyzer/sample.py ../acme/
 
-# 3. Open the project in Claude Code or Claude Desktop and ask Claude
-#    to use the press-release-analyzer skill to synthesize the playbook.
-#    (The synthesis is done by Claude reading the artifacts produced by
-#    Stage 2 — no API key required, runs on your monthly Claude subscription.)
-```
+# 3. Then ask Claude in conversation: "synthesize the analysis into a playbook"
+#    (the LLM-driven synthesis happens in the chat; no external API calls)
 
-For comparative analysis (the "killer feature"):
-
-```bash
-# After running discover/fetch/build_index/stats/ladder for both companies:
+# 4. For comparative analysis:
 python3 analyzer/compare.py acme/ globex/ \
-    --anchor-a <yyyy-mm-dd> \
-    --anchor-b <yyyy-mm-dd> \
+    --anchor-a <yyyy-mm-dd> --anchor-b <yyyy-mm-dd> \
     --out acme-vs-globex/
-# Then ask Claude: "produce the comparative playbook for these two companies"
+
+# 5. To generate the HTML presentation, ask Claude: "make a presentation
+#    from the playbook at <path>" — Claude reads the template and writes
+#    presentation.html.
 ```
 
 The `compare.py` script aligns companies by **company-relative time** (months since IPO/anchor) rather than calendar year — so a mature company's archive from a decade or two ago maps directly onto an early-stage company's recent post-IPO window because both cover roughly equivalent stages of public-company maturity.
-
-To finish — turn the playbook into a recording-ready slide deck:
-
-```bash
-# Ask Claude: "make a presentation from the analysis at <path-to-playbook>.
-# My client is a Series A medtech."
-# (The presenter skill reads the playbook and writes presentation.html)
-open <path>/presentation.html
-```
 
 ---
 
