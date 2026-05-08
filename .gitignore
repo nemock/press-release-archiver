@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Skill output (generated archives — these belong in user-chosen dirs, not the repo)
+manifest.json
+delta_manifest.json
+pending_chrome.json
+wire_results.json
+releases/
+INDEX.md
+*-archive/

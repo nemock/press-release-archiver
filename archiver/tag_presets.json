@@ -1,0 +1,88 @@
+{
+  "_doc": "Tag taxonomies per industry. Pick one with `fetch.py --tags <preset>`. Tags fire on case-insensitive substring match against headline + first 2 KB of body. Up to 4 tags assigned per release. Add new presets by copying any block — the schema is just `<tag-id>: [<keyword>, ...]`. The `_labels` map controls how tag IDs render in INDEX.md.",
+
+  "_labels": {
+    "financial-results": "Financial Results",
+    "leadership": "Leadership & Personnel",
+    "governance": "Governance",
+    "partnership": "Partnerships & Collaborations",
+    "product-milestone": "Product & Technology Milestones",
+    "regulatory": "Regulatory & Clinical",
+    "capital-markets": "Capital Markets & Listing",
+    "conference": "Conferences & Presentations",
+    "award": "Awards & Recognition",
+    "strategic": "Strategic Announcements",
+    "clinical": "Clinical Activity",
+    "corporate": "Corporate Actions",
+    "customer": "Customer Wins",
+    "product-launch": "Product Launches",
+    "expansion": "Geographic / Market Expansion",
+    "trial": "Clinical Trials",
+    "data-readout": "Trial Data Readouts",
+    "ip": "Intellectual Property",
+    "security": "Security & Compliance",
+    "open-source": "Open Source"
+  },
+
+  "generic": {
+    "financial-results": ["quarter", "financial results", "fiscal year", "full year", "earnings", "revenue"],
+    "leadership": ["chief executive", "ceo", "cfo", "chief financial", "chief operating", "coo", "appointment", "appointed", "leadership transition", "departure", "joins"],
+    "governance": ["board of directors", "chairman", "election of new directors", "directors"],
+    "partnership": ["partnership", "collaboration", "agreement with", "alliance", "joint venture"],
+    "product-milestone": ["milestone", "achievement", "completes", "successful"],
+    "product-launch": ["launches", "introduces", "unveils", "releases", "available now", "general availability", "ga release"],
+    "customer": ["customer", "deployed", "case study", "selected by", "chooses"],
+    "capital-markets": ["public offering", "reverse stock split", "cash burn", "listing notice", "delisting", "nasdaq listing", "ipo", "raise", "series a", "series b", "series c", "series d", "private placement", "secondary offering"],
+    "conference": ["conference", "fireside chat", "present at", "keynote", "summit"],
+    "award": ["award", "best places to work", "best inventions", "named to", "honored"],
+    "strategic": ["strategic plan", "strategic", "headquarters", "lease", "expansion"],
+    "expansion": ["expands into", "opens office", "new market", "international expansion"],
+    "ip": ["patent", "trademark", "intellectual property"],
+    "corporate": ["business combination", "merger", "spac", "acquisition", "acquires"]
+  },
+
+  "medtech": {
+    "financial-results": ["quarter", "financial results", "fiscal year", "full year", "earnings"],
+    "leadership": ["chief executive", "ceo", "cfo", "chief financial", "chief operating", "coo", "appointment", "appointed", "leadership transition", "departure"],
+    "governance": ["board of directors", "chairman", "election of new directors"],
+    "partnership": ["partnership", "collaboration", "agreement with"],
+    "product-milestone": ["beta", "design freeze", "porcine", "cadaveric", "demonstration", "in-vivo", "in vivo", "first-in-human"],
+    "regulatory": ["fda", "regulatory", "clinical plan", "510(k)", "510k", "ce mark", "pma", "de novo", "breakthrough device"],
+    "capital-markets": ["public offering", "reverse stock split", "cash burn", "listing notice", "delisting", "nasdaq listing", "raise", "series a", "series b", "private placement"],
+    "conference": ["conference", "fireside chat", "present at"],
+    "award": ["award", "best places to work", "best inventions"],
+    "strategic": ["strategic plan", "strategic", "headquarters", "lease"],
+    "clinical": ["surgeon", "hospital", "patient", "clinical use", "first-in-human", "case", "procedure"],
+    "corporate": ["business combination", "merger", "spac", "acquisition"]
+  },
+
+  "biotech": {
+    "financial-results": ["quarter", "financial results", "fiscal year", "earnings", "cash runway"],
+    "leadership": ["chief executive", "ceo", "cfo", "chief medical", "cmo", "chief scientific", "cso", "appointment", "appointed"],
+    "governance": ["board of directors", "chairman", "scientific advisory board"],
+    "partnership": ["partnership", "collaboration", "license agreement", "co-development"],
+    "regulatory": ["fda", "ema", "regulatory", "ind", "nda", "bla", "fast track", "breakthrough therapy", "orphan drug", "priority review", "approval"],
+    "trial": ["phase 1", "phase 2", "phase 3", "phase i", "phase ii", "phase iii", "trial", "study", "enrollment", "dose"],
+    "data-readout": ["topline", "interim", "primary endpoint", "data readout", "results from"],
+    "capital-markets": ["public offering", "reverse stock split", "ipo", "raise", "series a", "series b", "series c", "private placement", "secondary offering", "atm"],
+    "conference": ["conference", "fireside chat", "present at", "asco", "ash", "aacr"],
+    "ip": ["patent", "intellectual property", "composition of matter"],
+    "corporate": ["acquisition", "merger", "license"]
+  },
+
+  "saas": {
+    "financial-results": ["quarter", "financial results", "fiscal year", "full year", "earnings", "arr", "annual recurring revenue"],
+    "leadership": ["chief executive", "ceo", "cfo", "cto", "chief revenue", "cro", "chief product", "cpo", "appointment", "appointed", "joins"],
+    "governance": ["board of directors", "chairman", "directors"],
+    "partnership": ["partnership", "collaboration", "integration with", "joint solution"],
+    "product-launch": ["launches", "introduces", "unveils", "releases", "general availability", "ga release", "now available"],
+    "customer": ["customer", "deployed", "case study", "selected by", "chooses", "fortune 500"],
+    "capital-markets": ["raise", "series a", "series b", "series c", "series d", "series e", "ipo", "valuation", "led by"],
+    "conference": ["conference", "summit", "user conference", "keynote"],
+    "award": ["leader in", "magic quadrant", "forrester wave", "g2", "named to"],
+    "strategic": ["strategic", "expansion"],
+    "security": ["soc 2", "iso 27001", "fedramp", "hipaa", "gdpr"],
+    "open-source": ["open source", "open-source", "github"],
+    "corporate": ["acquisition", "acquires", "merger"]
+  }
+}
