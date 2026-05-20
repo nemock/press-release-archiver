@@ -601,8 +601,8 @@ def process(entry, cik, out_dir, wayback_delay=4.0, force=False):
     source_url = None
     source_label = None
 
-    # Tier 1 — EDGAR
-    if accession:
+    # Tier 1 — EDGAR (requires both an accession and a CIK)
+    if accession and cik:
         ex_url, html = fetch_tier1_edgar(accession, cik)
         if html:
             body = clean_edgar_body(html_to_text(html))
@@ -697,10 +697,17 @@ def main():
         sys.exit(1)
 
     manifest = json.loads(Path(args.manifest).read_text())
-    cik = manifest["cik"]
+    cik = manifest.get("cik")
     entries = manifest["entries"]
 
-    print(f"Processing {len(entries)} entries for CIK {cik} "
+    company_label = manifest.get("company_name", "(unknown)")
+    if cik:
+        scope_label = f"CIK {cik}"
+    elif manifest.get("url"):
+        scope_label = f"private / {manifest['url']}"
+    else:
+        scope_label = company_label
+    print(f"Processing {len(entries)} entries for {scope_label} "
           f"(tags={args.tags}, force={args.force})...")
     pending = []
     counts = {1: 0, 2: 0, "skip": 0, "fail": 0}

@@ -35,6 +35,10 @@ stats_mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(stats_mod)
 parse_release = stats_mod.parse_release
 collect_company_meta = stats_mod.collect_company_meta
+filter_releases = stats_mod.filter_releases
+parse_filter_arg = stats_mod.parse_filter_arg
+add_filter_args = stats_mod.add_filter_args
+resolve_analysis_out_dir = stats_mod.resolve_analysis_out_dir
 
 
 # Releases that count as candidate rungs (any of these tags qualifies)
@@ -245,31 +249,47 @@ def main():
     ap = argparse.ArgumentParser(description="Extract candidate credibility ladder rungs.")
     ap.add_argument("archive_dir")
     ap.add_argument("--out", default=None)
+    add_filter_args(ap)
     args = ap.parse_args()
 
     archive_dir = Path(args.archive_dir)
-    out_dir = Path(args.out or archive_dir / "analysis")
+    out_dir = resolve_analysis_out_dir(archive_dir, args)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     company_name, ticker, _ = collect_company_meta(archive_dir)
 
-    releases = []
+    all_releases = []
     for p in sorted((archive_dir / "releases").glob("*.md")):
         r = parse_release(p)
         if r:
-            releases.append(r)
-    if not releases:
+            all_releases.append(r)
+    if not all_releases:
         raise SystemExit(f"No release files in {archive_dir / 'releases'}")
-    releases.sort(key=lambda x: x["date"])
+    all_releases.sort(key=lambda x: x["date"])
+
+    filter_keywords = parse_filter_arg(args.filter_str)
+    releases = filter_releases(all_releases, filter_keywords)
+    if filter_keywords and not releases:
+        raise SystemExit(
+            f"Filter matched 0 releases. Keywords tried: {filter_keywords}.")
 
     rungs = extract_ladder(releases)
 
-    (out_dir / "ladder.json").write_text(
-        json.dumps({"company": company_name, "rungs": rungs}, indent=2))
+    ladder_payload = {"company": company_name, "rungs": rungs}
+    if filter_keywords:
+        ladder_payload["filter"] = {
+            "keywords": filter_keywords,
+            "matched": len(releases),
+            "total_in_archive": len(all_releases),
+        }
+
+    (out_dir / "ladder.json").write_text(json.dumps(ladder_payload, indent=2))
     (out_dir / "ladder.md").write_text(render_ladder_md(rungs, company_name))
 
     print(f"Wrote {out_dir / 'ladder.json'}")
     print(f"Wrote {out_dir / 'ladder.md'}")
+    if filter_keywords:
+        print(f"  Filter active: {len(releases)} of {len(all_releases)} releases matched ({filter_keywords})")
     print(f"  {len(rungs)} candidate rungs identified")
     print(f"  Archetype distribution: {archetype_distribution(rungs)}")
 

@@ -65,6 +65,102 @@ def parse_release(path):
 
 
 # ---------------------------------------------------------------------------
+# Filter — optional product-line / topic narrowing for multi-line companies
+# ---------------------------------------------------------------------------
+# A "filter" is a comma-separated list of keywords. A release matches if ANY
+# keyword appears as a whole word in its headline, summary, or body
+# (case-insensitive, word-boundary regex match). When a filter is active,
+# downstream stats/ladder/sample steps operate on the filtered subset only.
+#
+# Word-boundary matching avoids false positives from substring matches
+# (e.g., "ASD" in "passed", "DBS" inside other tokens) while still catching
+# acronyms and multi-word phrases naturally.
+
+def slugify(s):
+    """URL-safe lowercase-hyphen slug. Used for auto-naming filtered
+    output directories from the first filter keyword."""
+    s = (s or "").lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s)
+    return s.strip("-") or "filtered"
+
+
+def parse_filter_arg(filter_str):
+    """Parse a --filter argument string into a list of keywords."""
+    if not filter_str:
+        return []
+    return [k.strip() for k in filter_str.split(",") if k.strip()]
+
+
+def compile_filter(keywords):
+    """Return a compiled regex matching any keyword as a whole word,
+    case-insensitive. Returns None if no keywords were given."""
+    if not keywords:
+        return None
+    parts = [re.escape(k.strip()) for k in keywords if k.strip()]
+    if not parts:
+        return None
+    pattern = r"\b(?:" + "|".join(parts) + r")\b"
+    return re.compile(pattern, re.IGNORECASE)
+
+
+def release_matches_filter(release, filter_regex):
+    """True if release matches the compiled filter regex (or no filter is active)."""
+    if filter_regex is None:
+        return True
+    text = " ".join([
+        release.get("headline", "") or "",
+        release.get("summary", "") or "",
+        release.get("body", "") or "",
+    ])
+    return bool(filter_regex.search(text))
+
+
+def filter_releases(releases, keywords):
+    """Apply a word-boundary keyword filter to a list of parsed releases.
+    Returns the unfiltered list if no keywords given."""
+    regex = compile_filter(keywords)
+    if regex is None:
+        return releases
+    return [r for r in releases if release_matches_filter(r, regex)]
+
+
+def add_filter_args(parser):
+    """Standardize the --filter and --analysis-name argparse flags across
+    all analyzer scripts so the same UX applies everywhere."""
+    parser.add_argument(
+        "--filter", default=None, dest="filter_str",
+        help='Comma-separated keywords to narrow analysis to a product line / '
+             'topic (e.g. --filter "DBS,deep brain stimulation,Infinity DBS"). '
+             'Word-boundary match against headline + summary + body.')
+    parser.add_argument(
+        "--analysis-name", default=None,
+        help="Override the auto-derived analysis subdirectory name (default: "
+             "'analysis' if no filter, 'analysis-<slug>' if filter is active "
+             "where <slug> derives from the first filter keyword).")
+
+
+def resolve_analysis_out_dir(archive_dir, args, default_name="analysis"):
+    """Compute the output directory based on --out, --analysis-name, or --filter.
+
+    Precedence:
+      1. --out (explicit path) — used as-is
+      2. <archive>/analysis-<args.analysis_name>
+      3. <archive>/analysis-<slug(first-filter-keyword)>
+      4. <archive>/analysis  (the default)
+    """
+    if getattr(args, "out", None):
+        return Path(args.out)
+    name = default_name
+    if getattr(args, "analysis_name", None):
+        name = f"{default_name}-{slugify(args.analysis_name)}"
+    elif getattr(args, "filter_str", None):
+        kws = parse_filter_arg(args.filter_str)
+        if kws:
+            name = f"{default_name}-{slugify(kws[0])}"
+    return Path(archive_dir) / name
+
+
+# ---------------------------------------------------------------------------
 # Core analyses
 # ---------------------------------------------------------------------------
 
@@ -331,6 +427,11 @@ def render_patterns_md(stats, company_name):
     L.append(f"**Coverage:** {stats['date_range']['first']} → {stats['date_range']['last']}  ")
     if stats.get("ticker"):
         L.append(f"**Ticker:** {stats['ticker']}")
+    if stats.get("filter"):
+        f = stats["filter"]
+        kw_display = ", ".join(f"`{k}`" for k in f["keywords"])
+        L.append("")
+        L.append(f"> **Filter active.** This analysis covers only the **{f['matched']} of {f['total_in_archive']}** archived releases ({f['match_rate']:.0%}) that matched any of: {kw_display}. Word-boundary match against headline + summary + body. Unfiltered analyses for other product lines / topics can be produced from the same archive with a different `--filter`.")
     L.append("")
     L.append("---")
     L.append("")
@@ -487,7 +588,7 @@ def collect_company_meta(archive_dir, manifest_path=None):
 def main():
     ap = argparse.ArgumentParser(description="Compute deterministic statistics from a press-release archive.")
     ap.add_argument("archive_dir", help="path to the company archive (contains releases/, manifest.json, INDEX.md)")
-    ap.add_argument("--out", default=None, help="output directory (default: <archive>/analysis/)")
+    ap.add_argument("--out", default=None, help="output directory (default: <archive>/analysis/, or <archive>/analysis-<slug>/ if --filter or --analysis-name is set)")
     ap.add_argument("--manifest", default=None)
     ap.add_argument("--company-name", default=None,
                     help="Override company name (default: from manifest/INDEX/dir)")
@@ -496,10 +597,11 @@ def main():
     ap.add_argument("--ceo-names", nargs="*", default=[],
                     help="CEO/founder names to detect in quote attributions "
                          "(e.g. --ceo-names \"Jane Smith\" \"John Doe\")")
+    add_filter_args(ap)
     args = ap.parse_args()
 
     archive_dir = Path(args.archive_dir)
-    out_dir = Path(args.out or archive_dir / "analysis")
+    out_dir = resolve_analysis_out_dir(archive_dir, args)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     company_name, ticker, manifest = collect_company_meta(archive_dir, args.manifest)
@@ -508,14 +610,22 @@ def main():
     if args.ticker:
         ticker = args.ticker
 
-    releases = []
+    all_releases = []
     for p in sorted((archive_dir / "releases").glob("*.md")):
         r = parse_release(p)
         if r:
-            releases.append(r)
-    if not releases:
+            all_releases.append(r)
+    if not all_releases:
         raise SystemExit(f"No release files found in {archive_dir / 'releases'}")
-    releases.sort(key=lambda x: x["date"])
+    all_releases.sort(key=lambda x: x["date"])
+
+    # Apply optional product-line / topic filter.
+    filter_keywords = parse_filter_arg(args.filter_str)
+    releases = filter_releases(all_releases, filter_keywords)
+    if filter_keywords and not releases:
+        raise SystemExit(
+            f"Filter matched 0 releases. Keywords tried: {filter_keywords}. "
+            f"Try broader keywords or check spelling against the archive's INDEX.md.")
 
     stats = {
         "company": company_name,
@@ -528,6 +638,13 @@ def main():
         "bodies": body_stats(releases),
         "stakeholders": stakeholder_stats(releases, ceo_names=args.ceo_names),
     }
+    if filter_keywords:
+        stats["filter"] = {
+            "keywords": filter_keywords,
+            "matched": len(releases),
+            "total_in_archive": len(all_releases),
+            "match_rate": round(len(releases) / len(all_releases), 3),
+        }
 
     (out_dir / "stats.json").write_text(json.dumps(stats, indent=2, default=str))
     (out_dir / "patterns.md").write_text(render_patterns_md(stats, company_name))
@@ -535,6 +652,9 @@ def main():
     print(f"Wrote {out_dir / 'stats.json'}")
     print(f"Wrote {out_dir / 'patterns.md'}")
     print()
+    if filter_keywords:
+        print(f"  Filter active: {len(releases)} of {len(all_releases)} releases matched")
+        print(f"    keywords: {filter_keywords}")
     print(f"  {len(releases)} releases analyzed")
     print(f"  Coverage: {stats['date_range']['first']} → {stats['date_range']['last']}")
     print(f"  Median gap: {stats['cadence']['median_gap_days']} days")

@@ -1,6 +1,6 @@
 ---
-description: Cross-company comparative analysis with stage alignment — produces a comparative playbook showing what one company did at equivalent maturity that the other didn't.
-argument-hint: <Company A> <Company B> [--anchor-a YYYY-MM-DD] [--anchor-b YYYY-MM-DD] [--out path] [--client-stage X] [--client-industry Y]
+description: Cross-company comparative analysis with stage alignment — produces a comparative playbook showing what one company did at equivalent maturity that the other didn't. Optional product-line filter for comparing two conglomerates on one shared product line.
+argument-hint: <Company A> <Company B> [--anchor-a YYYY-MM-DD] [--anchor-b YYYY-MM-DD] [--filter "keyword1,keyword2,..."] [--out path] [--client-stage X] [--client-industry Y]
 ---
 
 Invoke the **press-release-analyzer** skill in **comparative mode** for the two companies in $ARGUMENTS.
@@ -11,6 +11,7 @@ Expected: `<Company A>` `<Company B>` `[flags]`. Examples:
 - `/pr-compare Stryker "Boston Scientific"`
 - `/pr-compare Acme Globex --anchor-a 2021-09-15 --anchor-b 2003-07-15`
 - `/pr-compare ./startup ./mature-co --client-stage seriesA --client-industry medtech`
+- `/pr-compare Abbott "Boston Scientific" --filter "DBS,deep brain stimulation"` (compare only DBS-related releases from each conglomerate)
 
 The first two arguments are **company names** (or paths). Resolve each independently using the same logic as `/pr-analyze`:
 
@@ -42,13 +43,19 @@ Locate the skill scripts via `$PRESS_RELEASE_SKILL_DIR`, then `~/.claude/skills/
 
 ## Workflow
 
+### Optional product-line filter (multi-line conglomerates)
+
+If the user passed `--filter "kw1,kw2,..."`, the same filter applies to **both** archives — only releases from each company that match the filter enter the comparison. This is the right move when comparing two conglomerates (Abbott vs Boston Scientific, etc.) on one specific therapeutic area or product line.
+
+When filtered, the comparison output landing directory should reflect the filter (suggest `<a>-vs-<b>-<slug>/` so it doesn't overwrite a previous unfiltered comparison).
+
 ### Stage 1 — ensure single-company stats exist for both archives
 
-For each archive, check if `<archive>/analysis/stats.json` and `ladder.json` exist. If missing, run them first:
+For each archive, check if `<archive>/analysis/stats.json` (or `<archive>/analysis-<slug>/stats.json` when filtered) and `ladder.json` exist. If missing, run them first — **with the same `--filter` if active**:
 ```bash
-python3 <skill>/analyzer/stats.py <archive> [--ceo-names ...]
-python3 <skill>/analyzer/ladder.py <archive>
-python3 <skill>/analyzer/sample.py <archive>
+python3 <skill>/analyzer/stats.py <archive> [--ceo-names ...] [--filter "..."]
+python3 <skill>/analyzer/ladder.py <archive> [--filter "..."]
+python3 <skill>/analyzer/sample.py <archive> [--filter "..."]
 ```
 
 If user didn't provide `--ceo-names` for either, ask — improves CEO-quote detection accuracy meaningfully.
@@ -58,10 +65,11 @@ If user didn't provide `--ceo-names` for either, ask — improves CEO-quote dete
 ```bash
 python3 <skill>/analyzer/compare.py <archive-a> <archive-b> \
     --anchor-a <date-a> --anchor-b <date-b> \
+    [--filter "..."] \
     --out <comparison-dir>
 ```
 
-This writes `comparison.json` + `comparison.md` to the comparison dir.
+This writes `comparison.json` + `comparison.md` to the comparison dir. When filtered, the JSON includes the per-company match rates (e.g., "Abbott: 73 of 487, Boston Scientific: 41 of 312") so the synthesis can frame the comparison's coverage honestly.
 
 ### Stage 3 — comparative synthesis
 

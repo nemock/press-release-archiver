@@ -86,12 +86,15 @@ def build(releases_dir, out_path, manifest_path=None):
     releases.sort(key=lambda r: r["date"])
 
     company = "Company"
-    cik = ticker = ""
+    cik = ticker = url = ""
+    is_public = None
     if manifest_path and Path(manifest_path).exists():
         m = json.loads(Path(manifest_path).read_text())
         company = m.get("company_name", company)
-        cik = m.get("cik", "")
+        cik = m.get("cik", "") or ""
         ticker = m.get("ticker", "") or ""
+        url = m.get("url", "") or ""
+        is_public = m.get("is_public")
 
     tag_counts = Counter()
     year_counts = Counter()
@@ -104,12 +107,16 @@ def build(releases_dir, out_path, manifest_path=None):
     L = []
     L.append(f"# {company} — Press Release Archive")
     L.append("")
-    if ticker or cik:
+    if ticker or cik or url or is_public is False:
         bits = []
         if ticker:
             bits.append(f"**Ticker:** {ticker}")
         if cik:
             bits.append(f"**SEC CIK:** {cik}")
+        if url:
+            bits.append(f"**Website:** <{url}>")
+        if is_public is False:
+            bits.append("**Status:** Private / pre-IPO")
         L.append(" &nbsp;·&nbsp; ".join(bits))
         L.append("")
     L.append(f"**Releases archived:** {len(releases)} ")

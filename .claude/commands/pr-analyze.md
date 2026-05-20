@@ -1,6 +1,6 @@
 ---
-description: Analyze a press release archive and produce a strategic playbook (credibility ladder, drumbeat patterns, stakeholder orchestration, foundation plays + recommendations).
-argument-hint: <Company Name> [--ceo-names "Name1" "Name2"] [--client-stage seed|seriesA|seriesB|preIPO] [--client-industry medtech|biotech|saas]
+description: Analyze a press release archive and produce a strategic playbook (credibility ladder, drumbeat patterns, stakeholder orchestration, foundation plays + recommendations). Optional product-line filter for multi-line conglomerates.
+argument-hint: <Company Name> [--ceo-names "Name1" "Name2"] [--filter "keyword1,keyword2,..."] [--analysis-name <slug>] [--client-stage seed|seriesA|seriesB|preIPO] [--client-industry medtech|biotech|saas]
 ---
 
 Invoke the **press-release-analyzer** skill workflow for the company in $ARGUMENTS.
@@ -11,6 +11,7 @@ Expected: `<Company Name>` `[flags]`. Examples:
 - `/pr-analyze Stryker`
 - `/pr-analyze "Boston Scientific" --ceo-names "Mike Mahoney"`
 - `/pr-analyze Acme --client-stage seriesA --client-industry medtech`
+- `/pr-analyze Abbott --filter "DBS,deep brain stimulation,Infinity DBS,neuromodulation"` (filtered to one product line)
 
 The first argument is a **company name**. Resolve it to an archive directory in the current working directory using this sequence:
 
@@ -48,19 +49,29 @@ Locate the skill scripts (try in order):
 
 ## Workflow
 
+### Optional product-line filter (multi-line conglomerates)
+
+If the user passed `--filter "kw1,kw2,..."` (or asked for a product-line-specific analysis on a conglomerate like Abbott, Stryker, Boston Scientific, J&J), pass the same `--filter` value to **all three** Python scripts in Stage 1, and to compare.py if applicable. The filter applies a case-insensitive word-boundary regex match across each release's headline + summary + body. Only matching releases enter the analysis.
+
+Output then lands in `<archive>/analysis-<slug>/` instead of `<archive>/analysis/`, where the slug derives from the slugified first filter keyword. The user can override with `--analysis-name <name>`.
+
+When the user wants product-line analysis but isn't sure which keywords to use, suggest a starting set (e.g., for Abbott DBS: `"DBS,deep brain stimulation,Infinity DBS,Liberty DBS,neuromodulation"`). After the filter runs, the stats.py output will report the match count; if it's surprisingly low, suggest broader keywords; if surprisingly high, look for over-matched terms.
+
 ### Stage 1 — deterministic stats
 
-Run all three Python scripts (substitute `<archive>` with the resolved archive directory):
+Run all three Python scripts (substitute `<archive>` with the resolved archive directory; pass `--filter` to all three if active):
 ```bash
-python3 <skill>/analyzer/stats.py <archive> [--ceo-names ...]
-python3 <skill>/analyzer/ladder.py <archive>
-python3 <skill>/analyzer/sample.py <archive>
+python3 <skill>/analyzer/stats.py <archive> [--ceo-names ...] [--filter "..."]
+python3 <skill>/analyzer/ladder.py <archive> [--filter "..."]
+python3 <skill>/analyzer/sample.py <archive> [--filter "..."]
 ```
 
-These write to `<archive>/analysis/`:
+These write to `<archive>/analysis/` (or `<archive>/analysis-<slug>/` when `--filter` is active):
 - `stats.json` + `patterns.md`
 - `ladder.json` + `ladder.md`
 - `sample.md`
+
+When filtered, `stats.json` and `patterns.md` both record the match rate (e.g. "73 of 487 releases matched") and the active keywords. **Use this filter context in your synthesis** — frame insights as the company's *DBS* communications strategy (or whatever product line), not its overall PR strategy.
 
 Show the user the high-level stats from `stats.py`'s stdout (release count, median gap, cluster count, CEO quote rate).
 

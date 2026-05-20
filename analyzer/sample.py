@@ -43,6 +43,10 @@ spec = importlib.util.spec_from_file_location("stats_mod", SCRIPT_DIR / "stats.p
 stats_mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(stats_mod)
 parse_release = stats_mod.parse_release
+filter_releases = stats_mod.filter_releases
+parse_filter_arg = stats_mod.parse_filter_arg
+add_filter_args = stats_mod.add_filter_args
+resolve_analysis_out_dir = stats_mod.resolve_analysis_out_dir
 
 
 # Tags that indicate a strategically meaningful release
@@ -190,20 +194,29 @@ def main():
                     help="Include FULL body text (not just excerpt). "
                          "Significantly more tokens — use only for deep-dive runs.")
     ap.add_argument("--max-samples", type=int, default=80)
+    add_filter_args(ap)
     args = ap.parse_args()
 
     archive_dir = Path(args.archive_dir)
-    out_path = Path(args.out or archive_dir / "analysis" / "sample.md")
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    stats_path = Path(args.stats or archive_dir / "analysis" / "stats.json")
+    # Output dir respects --filter / --analysis-name; stats.json lives in the same dir.
+    out_dir = resolve_analysis_out_dir(archive_dir, args)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = Path(args.out) if args.out else (out_dir / "sample.md")
+    stats_path = Path(args.stats) if args.stats else (out_dir / "stats.json")
     stats = json.loads(stats_path.read_text()) if stats_path.exists() else None
 
-    releases = []
+    all_releases = []
     for p in sorted((archive_dir / "releases").glob("*.md")):
         r = parse_release(p)
         if r:
-            releases.append(r)
-    releases.sort(key=lambda x: x["date"])
+            all_releases.append(r)
+    all_releases.sort(key=lambda x: x["date"])
+
+    filter_keywords = parse_filter_arg(args.filter_str)
+    releases = filter_releases(all_releases, filter_keywords)
+    if filter_keywords and not releases:
+        raise SystemExit(
+            f"Filter matched 0 releases. Keywords tried: {filter_keywords}.")
 
     company_name = stats.get("company") if stats else archive_dir.name
 
@@ -211,6 +224,8 @@ def main():
     out_path.write_text(render_bundle(samples, company_name, deep=args.deep))
 
     print(f"Wrote {out_path}")
+    if filter_keywords:
+        print(f"  Filter active: {len(releases)} of {len(all_releases)} releases matched ({filter_keywords})")
     print(f"  Sampled {len(samples)}/{len(releases)} releases")
     if args.deep:
         print(f"  --deep mode: full bodies included (heavy on tokens)")

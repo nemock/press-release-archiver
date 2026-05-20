@@ -14,7 +14,8 @@ Ask the user for, or infer:
 1. **Archive directory** — the output of `press-release-archiver`, e.g. `acme-medtech/`
 2. **Mode** — single-company OR comparative (the user will say "compare X and Y" or just give one company)
 3. **CEO/founder names** — improves stakeholder-quote attribution. Optional but worth asking about.
-4. **For comparative**: anchor dates for each company. Default = first release in archive. Override with **the IPO/SPAC/Series-A date** if you want stage alignment.
+4. **Optional filter** — for multi-product-line companies (Abbott, Stryker, Boston Scientific, Johnson & Johnson, etc.) where the archive mixes unrelated business units, ask whether the user wants to narrow the analysis to a specific product line or therapeutic area. If yes, get 3–8 keywords (e.g. `"DBS,deep brain stimulation,Infinity DBS"`). The filter applies word-boundary regex matching across headline + summary + body. Filtered output lands in `<archive>/analysis-<slug>/` so the same archive can drive multiple parallel playbooks (`analysis-dbs/`, `analysis-diabetes-care/`, etc.).
+5. **For comparative**: anchor dates for each company. Default = first release in archive. Override with **the IPO/SPAC/Series-A date** if you want stage alignment.
 
 ## Stage 1 — Run the deterministic pipeline
 
@@ -32,6 +33,18 @@ This writes:
 - `<archive>/analysis/ladder.json` + `<archive>/analysis/ladder.md` — candidate credibility-ladder rungs
 - `<archive>/analysis/sample.md` — strategic-sample bundle of ~30-80 releases
 
+**With an optional product-line filter** (multi-line conglomerates):
+
+```bash
+python3 stats.py <archive-dir> --ceo-names "..." --filter "DBS,deep brain stimulation,Infinity DBS"
+python3 ladder.py <archive-dir> --filter "DBS,deep brain stimulation,Infinity DBS"
+python3 sample.py <archive-dir> --filter "DBS,deep brain stimulation,Infinity DBS"
+```
+
+The filter must be passed **identically** to all three scripts. Output lands in `<archive>/analysis-<slug>/` (the slug is the slugified first keyword, here `dbs`). Override with `--analysis-name <name>` to control the subdirectory name explicitly.
+
+`patterns.md` and `stats.json` both record the active filter and the match rate (e.g. "73 of 487 releases matched"). The synthesis output you write later should explicitly note that the analysis is narrowed to a product line — frame insights as "the company's *DBS communications strategy*" rather than "the company's PR strategy."
+
 For a **comparative** analysis, also run `compare.py`:
 
 ```bash
@@ -40,8 +53,18 @@ python3 compare.py <archive-a> <archive-b> \
     --out <archive-a>-vs-<archive-b>/
 ```
 
+With a filter (compares only product-line-relevant releases from each):
+
+```bash
+python3 compare.py <archive-a> <archive-b> \
+    --anchor-a <yyyy-mm-dd> --anchor-b <yyyy-mm-dd> \
+    --filter "DBS,deep brain stimulation" \
+    --out <archive-a>-vs-<archive-b>-dbs/
+```
+
 This writes:
 - `<out>/comparison.json` + `<out>/comparison.md` — stage-aligned cross-company comparison
+- (When filtered) `<out>/comparison.json` also records the match rate for each company. If either company has zero matches the script exits with a clear error.
 
 **Important: pick anchor dates that align by company stage, not calendar year.** For each company, choose the date it became a public-storytelling entity (typically the IPO date, SPAC merger close, or first material wire release). Aligning these makes the comparison strategically meaningful — what was each company doing at equivalent maturity, regardless of calendar year.
 

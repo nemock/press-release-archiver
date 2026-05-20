@@ -36,6 +36,10 @@ stats_mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(stats_mod)
 parse_release = stats_mod.parse_release
 collect_company_meta = stats_mod.collect_company_meta
+filter_releases = stats_mod.filter_releases
+parse_filter_arg = stats_mod.parse_filter_arg
+add_filter_args = stats_mod.add_filter_args
+slugify = stats_mod.slugify
 
 
 def months_between(d1, d2):
@@ -197,7 +201,7 @@ def render_comparison_md(name_a, name_b, anchor_a, anchor_b,
     return "\n".join(L)
 
 
-def load_archive(archive_dir, anchor_override=None):
+def load_archive(archive_dir, anchor_override=None, filter_keywords=None):
     archive_dir = Path(archive_dir)
     company_name, ticker, _ = collect_company_meta(archive_dir)
     releases = []
@@ -206,17 +210,28 @@ def load_archive(archive_dir, anchor_override=None):
         if r:
             releases.append(r)
     releases.sort(key=lambda x: x["date"])
-    anchor = anchor_override or releases[0]["date"]
-    return company_name, ticker, releases, anchor
+    total = len(releases)
+    if filter_keywords:
+        releases = filter_releases(releases, filter_keywords)
+    anchor = anchor_override or (releases[0]["date"] if releases else None)
+    return company_name, ticker, releases, anchor, total
 
 
-def load_stats(archive_dir):
-    p = Path(archive_dir) / "analysis" / "stats.json"
+def _analysis_subdir(archive_dir, filter_keywords):
+    """Pick the per-company analysis subdirectory used as input — matches the
+    output dir resolver in stats.py so compare can load filtered stats."""
+    if filter_keywords:
+        return Path(archive_dir) / f"analysis-{slugify(filter_keywords[0])}"
+    return Path(archive_dir) / "analysis"
+
+
+def load_stats(archive_dir, filter_keywords=None):
+    p = _analysis_subdir(archive_dir, filter_keywords) / "stats.json"
     return json.loads(p.read_text()) if p.exists() else None
 
 
-def load_ladder(archive_dir):
-    p = Path(archive_dir) / "analysis" / "ladder.json"
+def load_ladder(archive_dir, filter_keywords=None):
+    p = _analysis_subdir(archive_dir, filter_keywords) / "ladder.json"
     return json.loads(p.read_text()) if p.exists() else None
 
 
@@ -234,18 +249,29 @@ def main():
     ap.add_argument("--max-months", type=int, default=None,
                     help="Cap the comparison window (in months since anchor). "
                          "Default: use the smaller archive's full window.")
+    add_filter_args(ap)
     args = ap.parse_args()
+
+    filter_keywords = parse_filter_arg(args.filter_str)
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    name_a, ticker_a, rel_a, anchor_a = load_archive(args.archive_a, args.anchor_a)
-    name_b, ticker_b, rel_b, anchor_b = load_archive(args.archive_b, args.anchor_b)
+    name_a, ticker_a, rel_a, anchor_a, total_a = load_archive(
+        args.archive_a, args.anchor_a, filter_keywords)
+    name_b, ticker_b, rel_b, anchor_b, total_b = load_archive(
+        args.archive_b, args.anchor_b, filter_keywords)
 
-    stats_a = load_stats(args.archive_a) or {}
-    stats_b = load_stats(args.archive_b) or {}
-    ladder_a = load_ladder(args.archive_a) or {}
-    ladder_b = load_ladder(args.archive_b) or {}
+    if filter_keywords and (not rel_a or not rel_b):
+        raise SystemExit(
+            f"Filter matched 0 releases in one or both archives. Keywords: {filter_keywords}. "
+            f"Matched {len(rel_a)}/{total_a} in A and {len(rel_b)}/{total_b} in B.")
+
+    # If filter active, also try to load filter-specific stats/ladder; fall back to default analysis/
+    stats_a = load_stats(args.archive_a, filter_keywords) or load_stats(args.archive_a) or {}
+    stats_b = load_stats(args.archive_b, filter_keywords) or load_stats(args.archive_b) or {}
+    ladder_a = load_ladder(args.archive_a, filter_keywords) or load_ladder(args.archive_a) or {}
+    ladder_b = load_ladder(args.archive_b, filter_keywords) or load_ladder(args.archive_b) or {}
 
     aligned_a = stage_relative_releases(rel_a, anchor_a)
     aligned_b = stage_relative_releases(rel_b, anchor_b)
@@ -273,15 +299,21 @@ def main():
 
     comp = {
         "company_a": {"name": name_a, "ticker": ticker_a, "anchor": anchor_a,
-                      "archive_release_count": len(rel_a)},
+                      "release_count": len(rel_a), "total_in_archive": total_a},
         "company_b": {"name": name_b, "ticker": ticker_b, "anchor": anchor_b,
-                      "archive_release_count": len(rel_b)},
+                      "release_count": len(rel_b), "total_in_archive": total_b},
         "max_months_compared": max_months,
         "aligned_by_year": aligned,
         "headline_deltas": diff,
         "archetype_mix_a": arch_a,
         "archetype_mix_b": arch_b,
     }
+    if filter_keywords:
+        comp["filter"] = {
+            "keywords": filter_keywords,
+            "matched_a": f"{len(rel_a)} of {total_a}",
+            "matched_b": f"{len(rel_b)} of {total_b}",
+        }
     (out_dir / "comparison.json").write_text(json.dumps(comp, indent=2, default=str))
     (out_dir / "comparison.md").write_text(
         render_comparison_md(name_a, name_b, anchor_a, anchor_b,
@@ -289,6 +321,10 @@ def main():
 
     print(f"Wrote {out_dir / 'comparison.json'}")
     print(f"Wrote {out_dir / 'comparison.md'}")
+    if filter_keywords:
+        print(f"  Filter active: {filter_keywords}")
+        print(f"    {name_a}: {len(rel_a)} of {total_a} releases matched")
+        print(f"    {name_b}: {len(rel_b)} of {total_b} releases matched")
     print(f"  {name_a} (anchor {anchor_a}, {len(rel_a)} releases)")
     print(f"  {name_b} (anchor {anchor_b}, {len(rel_b)} releases)")
     print(f"  Stage-aligned window: {max_months} months")

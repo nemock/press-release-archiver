@@ -2,18 +2,30 @@
 """
 Stage 1 of the press-release-archiver skill.
 
-Discovers every press release for a given public company by combining:
-  - SEC EDGAR full-text search (8-K filings with EX-99.1 exhibits)
-  - Business Wire / GlobeNewswire / PR Newswire searches via DuckDuckGo
-    (chosen over Google because it has no API key requirement)
+Discovers every press release for a given company by combining:
+  - SEC EDGAR full-text search (8-K filings with EX-99.1 exhibits) — public companies only
+  - Business Wire / GlobeNewswire / PR Newswire searches via WebSearch
+  - The company's own newsroom (when a URL is provided)
 
 Outputs a manifest.json the fetch.py stage consumes.
 
-Usage:
-  python3 discover.py "Acme Medtech" --ticker ACME --out manifest.json
-  python3 discover.py "Stryker" --ticker SYK --pre-ipo skip --out stryker_manifest.json
+The second positional argument is auto-detected:
+  - Looks like a ticker (1-5 uppercase letters, optional .X share class) → public-company mode
+  - Looks like a URL or bare domain → URL-anchored mode; still probes EDGAR by name
+    to detect if the company happens to be public
 
-Note: this is a SKETCH. The DuckDuckGo / Bing search step is stubbed —
+Usage:
+  # Public company by ticker (auto-detected)
+  python3 discover.py "Stryker" SYK --out stryker_manifest.json
+
+  # Private / pre-IPO company by URL (auto-detected)
+  python3 discover.py "Vicarious Surgical" https://vicarioussurgical.com --out manifest.json
+
+  # Explicit flags (still supported)
+  python3 discover.py "Acme Medtech" --ticker ACME --out manifest.json
+  python3 discover.py "Acme Medtech" --url https://acme.example --out manifest.json
+
+Note: this is a SKETCH. The wire/newsroom search step is stubbed —
 it should be wired to whatever search transport the skill environment
 provides (WebSearch tool, SerpAPI, etc.). The EDGAR path is fully implemented.
 """
@@ -31,6 +43,45 @@ USER_AGENT_SEC = "Press Release Archiver Skill your-email@example.com"
 
 
 # ---------------------------------------------------------------------------
+# Input disambiguation
+# ---------------------------------------------------------------------------
+
+TICKER_RE = re.compile(r"^[A-Z]{1,5}(\.[A-Z])?$")
+
+
+def detect_disambiguator(value):
+    """Classify a bare disambiguator argument as 'ticker' or 'url'.
+
+    Tickers: 1-5 uppercase letters, optional .X share-class suffix (BRK.A).
+    Anything else with a scheme or domain-shaped substring is treated as a URL.
+    Returns (kind, normalized_value). For URLs, a missing https:// scheme is added.
+    Returns (None, None) when the value matches neither shape.
+    """
+    if not value:
+        return (None, None)
+    v = value.strip()
+    if TICKER_RE.match(v):
+        return ("ticker", v)
+    # URL: has scheme, or has at least one dot with a 2+ char TLD-ish tail
+    if "://" in v or re.search(r"\w+\.[A-Za-z]{2,}", v):
+        if "://" not in v:
+            v = "https://" + v.lstrip("/")
+        return ("url", v)
+    return (None, None)
+
+
+def extract_domain(url):
+    """Return the bare hostname (no scheme, no www., no path) for a URL."""
+    if not url:
+        return None
+    u = url if "://" in url else "https://" + url
+    netloc = urllib.parse.urlparse(u).netloc.lower()
+    if netloc.startswith("www."):
+        netloc = netloc[4:]
+    return netloc or None
+
+
+# ---------------------------------------------------------------------------
 # CIK lookup
 # ---------------------------------------------------------------------------
 
@@ -39,7 +90,17 @@ def find_cik(company_name, ticker=None):
 
     Strategy:
       1. If ticker provided, use the SEC's company_tickers.json (~40k row index).
-      2. Otherwise, search EDGAR's company browse endpoint by name.
+         A ticker hit is high-confidence.
+      2. Otherwise, search EDGAR's company browse endpoint by name. Name-only
+         hits are flagged lower-confidence — caller may want to confirm before
+         treating as public.
+
+    Returns (cik, resolved_name, confidence) where confidence is one of:
+      'exact'      — ticker matched, or name match with the search term as a
+                     substring of the resolved title (high confidence)
+      'fuzzy'      — name search returned rows but none contained the search
+                     term as a substring (low confidence; first row returned)
+      'none'       — no rows returned at all
     """
     if ticker:
         url = "https://www.sec.gov/files/company_tickers.json"
@@ -50,7 +111,7 @@ def find_cik(company_name, ticker=None):
         for row in data.values():
             if row["ticker"].upper() == T:
                 cik = str(row["cik_str"]).zfill(10)
-                return cik, row["title"]
+                return cik, row["title"], "exact"
         # Fall through to name search if ticker not found
 
     # Name-based search
@@ -59,20 +120,20 @@ def find_cik(company_name, ticker=None):
            f"action=getcompany&company={name_q}&type=8-K&dateb=&owner=include"
            f"&count=10&action=getcompany")
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT_SEC})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        html = resp.read().decode("utf-8", errors="replace")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+    except Exception:
+        return None, None, "none"
 
-    # Parse the result table for CIK + name pairs.
-    matches = re.findall(
-        r'CIK=(\d{10})[^>]*>([^<]+)</a>', html)
+    matches = re.findall(r'CIK=(\d{10})[^>]*>([^<]+)</a>', html)
     if not matches:
-        return None, None
-    # Heuristic: prefer the row whose name contains the search term
+        return None, None, "none"
     target = company_name.lower()
     for cik, name in matches:
         if target in name.lower():
-            return cik, name
-    return matches[0][0], matches[0][1]
+            return cik, name, "exact"
+    return matches[0][0], matches[0][1], "fuzzy"
 
 
 # ---------------------------------------------------------------------------
@@ -169,19 +230,22 @@ def enumerate_edgar_press_releases(cik):
 # Wire enumeration (Business Wire, GlobeNewswire, PR Newswire)
 # ---------------------------------------------------------------------------
 
-def enumerate_wire_releases(company_name, years):
-    """Search the major wires for press releases mentioning the company.
+def enumerate_wire_releases(company_name, years, url=None):
+    """Search the major wires (and the company's own newsroom) for press releases.
 
     SKETCH: this is a stub. In a real skill, wire it to whatever search
     transport is available (Claude's WebSearch tool, SerpAPI, etc.).
     The function should return a list of dicts:
-      {"date": "YYYY-MM-DD", "headline": "...", "url": "...", "wire": "businesswire|globenewswire|prnewswire"}
+      {"date": "YYYY-MM-DD", "headline": "...", "url": "...", "wire": "businesswire|globenewswire|prnewswire|newsroom"}
     """
     sites = ["businesswire.com", "globenewswire.com", "prnewswire.com"]
     print("  [wire-search] Stubbed. In a real skill, search:", file=sys.stderr)
     for site in sites:
         for year in years:
             print(f"    site:{site} \"{company_name}\" {year}", file=sys.stderr)
+    domain = extract_domain(url) if url else None
+    if domain:
+        print(f"    site:{domain} \"press release\" OR news", file=sys.stderr)
     return []
 
 
@@ -277,13 +341,30 @@ def existing_dates_in_releases(releases_dir):
     return dates
 
 
-def emit_search_queries(company_name, years):
+def emit_search_queries(company_name, years, url=None):
     """Emit a copy-pasteable list of search queries Claude should run.
-    Returns the list as a Python list (also printed for human visibility)."""
+    Returns the list as a Python list (also printed for human visibility).
+
+    When a URL is provided, adds newsroom-targeted queries against the
+    company's own domain. For private-company mode (no years known yet),
+    falls back to a multi-year window ending at the current year.
+    """
     queries = []
+    if not years:
+        this_year = datetime.now().year
+        years = [str(y) for y in range(this_year - 5, this_year + 1)]
     for site in ("businesswire.com", "globenewswire.com", "prnewswire.com"):
         for year in years:
             queries.append(f'site:{site} "{company_name}" {year}')
+    domain = extract_domain(url) if url else None
+    if domain:
+        # Capture the company's own newsroom regardless of year.
+        queries.append(f'site:{domain} "press release"')
+        queries.append(f'site:{domain} news')
+        # Bias wire results toward releases that actually link back to the
+        # company's domain — useful for disambiguating common company names.
+        for year in years:
+            queries.append(f'"{company_name}" "{domain}" "press release" {year}')
     return queries
 
 
@@ -335,11 +416,18 @@ def merge_wire_into_manifest(manifest, wire_rows):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Discover press releases for a public company.",
+        description="Discover press releases for a company (public or private).",
         epilog="Three modes: full discovery (default), --manifest-merge to add "
                "wire results to an existing manifest, --update for incremental.")
     ap.add_argument("company_name", nargs="?")
-    ap.add_argument("--ticker", default=None)
+    ap.add_argument("disambiguator", nargs="?",
+                    help="Auto-detected: a ticker (e.g. SYK) or a URL "
+                         "(e.g. https://vicarioussurgical.com). Use --ticker "
+                         "or --url to be explicit.")
+    ap.add_argument("--ticker", default=None,
+                    help="Explicit ticker symbol; takes precedence over auto-detected positional.")
+    ap.add_argument("--url", default=None,
+                    help="Explicit company URL; takes precedence over auto-detected positional.")
     ap.add_argument("--out", default="manifest.json")
     ap.add_argument("--pre-ipo", choices=["skip", "include"], default="skip")
 
@@ -381,18 +469,51 @@ def main():
     if not args.company_name:
         ap.error("company_name is required (unless using --manifest-merge)")
 
-    print(f"Resolving CIK for {args.company_name}"
-          f"{f' ({args.ticker})' if args.ticker else ''}...")
-    cik, resolved_name = find_cik(args.company_name, args.ticker)
-    if not cik:
-        print(f"ERROR: could not resolve CIK for {args.company_name}",
-              file=sys.stderr)
-        sys.exit(1)
-    print(f"  CIK {cik} = {resolved_name}")
+    # Auto-detect the positional disambiguator if --ticker / --url not given.
+    ticker = args.ticker
+    url = args.url
+    if args.disambiguator and not (ticker or url):
+        kind, value = detect_disambiguator(args.disambiguator)
+        if kind == "ticker":
+            ticker = value
+        elif kind == "url":
+            url = value
+        else:
+            print(f"ERROR: could not classify '{args.disambiguator}' as ticker or URL. "
+                  f"Use --ticker or --url to be explicit.", file=sys.stderr)
+            sys.exit(1)
 
-    print(f"Enumerating EDGAR 8-K press releases for CIK {cik}...")
-    edgar_rows = enumerate_edgar_press_releases(cik)
-    print(f"  Found {len(edgar_rows)} press releases on EDGAR")
+    # Always try EDGAR — a URL-anchored company may still turn out to be public.
+    print(f"Resolving CIK for {args.company_name}"
+          f"{f' ({ticker})' if ticker else ''}...")
+    cik, resolved_name, confidence = find_cik(args.company_name, ticker)
+    if cik and confidence == "exact":
+        print(f"  CIK {cik} = {resolved_name}")
+        is_public = True
+    elif cik and confidence == "fuzzy":
+        # Name-only match with no substring agreement — likely the wrong company.
+        # Be conservative: treat as private unless an explicit ticker was given.
+        if ticker:
+            print(f"  CIK {cik} = {resolved_name} (fuzzy match accepted: ticker was explicit)")
+            is_public = True
+        else:
+            print(f"  Fuzzy EDGAR match found ({resolved_name}, CIK {cik}) "
+                  f"but rejected — no ticker to confirm. Treating as private.")
+            cik = None
+            is_public = False
+    else:
+        if ticker:
+            print(f"ERROR: ticker '{ticker}' did not resolve to an SEC CIK.",
+                  file=sys.stderr)
+            sys.exit(1)
+        print(f"  No EDGAR match — treating as private / pre-IPO.")
+        is_public = False
+
+    edgar_rows = []
+    if is_public and cik:
+        print(f"Enumerating EDGAR 8-K press releases for CIK {cik}...")
+        edgar_rows = enumerate_edgar_press_releases(cik)
+        print(f"  Found {len(edgar_rows)} press releases on EDGAR")
 
     # ----- Mode: --update (incremental, narrow to net-new) -----
     if args.update:
@@ -402,7 +523,8 @@ def main():
             print(f"  Existing archive max date: {cutoff} "
                   f"({len(existing)} releases on disk)")
             edgar_rows = [r for r in edgar_rows if r[0] > cutoff]
-            print(f"  After cutoff filter: {len(edgar_rows)} new EDGAR entries")
+            if is_public:
+                print(f"  After cutoff filter: {len(edgar_rows)} new EDGAR entries")
         else:
             print(f"  No existing releases found in {args.update}; full enumeration.")
 
@@ -414,7 +536,7 @@ def main():
     if args.emit_queries:
         print()
         print("Wire-search queries to run (one per line):")
-        for q in emit_search_queries(args.company_name, years):
+        for q in emit_search_queries(args.company_name, years, url=url):
             print(f"  {q}")
         print()
         print("Format wire results as JSON list of {date, headline, url, wire},")
@@ -422,13 +544,15 @@ def main():
         sys.exit(0)
 
     print(f"Searching wires for {args.company_name} (stub — emit queries with --emit-queries)...")
-    wire_rows = enumerate_wire_releases(args.company_name, years)
+    wire_rows = enumerate_wire_releases(args.company_name, years, url=url)
     print(f"  Found {len(wire_rows)} wire releases")
 
     manifest = {
         "company_name": resolved_name or args.company_name,
-        "ticker": args.ticker,
+        "ticker": ticker,
         "cik": cik,
+        "url": url,
+        "is_public": is_public,
         "generated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "mode": "update" if args.update else "full",
         "entries": merge_sources(edgar_rows, wire_rows, args.company_name),
@@ -443,9 +567,16 @@ def main():
     print("  Year breakdown:", ", ".join(f"{y}: {c}" for y, c in sorted(by_year.items())))
     if not args.update:
         print()
-        print("Next: run wire searches to capture non-EDGAR releases. Use:")
-        print(f"  python3 discover.py {repr(args.company_name)} "
-              f"{'--ticker ' + args.ticker + ' ' if args.ticker else ''}--emit-queries")
+        if is_public:
+            print("Next: run wire searches to capture non-EDGAR releases. Use:")
+        else:
+            print("Next: run wire + newsroom searches (no EDGAR available for private mode):")
+        disambig = ""
+        if ticker:
+            disambig = f"--ticker {ticker} "
+        elif url:
+            disambig = f"--url {url} "
+        print(f"  python3 discover.py {repr(args.company_name)} {disambig}--emit-queries")
 
 
 if __name__ == "__main__":
