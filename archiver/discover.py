@@ -3,11 +3,20 @@
 Stage 1 of the press-release-archiver skill.
 
 Discovers every press release for a given company by combining:
-  - SEC EDGAR full-text search (8-K filings with EX-99.1 exhibits) — public companies only
+  - SEC EDGAR (dense walk via data.sec.gov submissions) — public companies
   - Business Wire / GlobeNewswire / PR Newswire searches via WebSearch
   - The company's own newsroom (when a URL is provided)
 
 Outputs a manifest.json the fetch.py stage consumes.
+
+CHANGELOG
+  - 2026-05-21  EDGAR enumeration switched from efts.sec.gov full-text search
+                to a dense walk of data.sec.gov/submissions (every 8-K, not
+                just those matching a phrase query). Added --start-year /
+                --end-year / --edgar-delay / --max-filings / --edgar-sample.
+                Old FTS sampler is still reachable for spot-checks via
+                --edgar-sample.
+  - (See git log for earlier history.)
 
 The second positional argument is auto-detected:
   - Looks like a ticker (1-5 uppercase letters, optional .X share class) → public-company mode
@@ -21,9 +30,19 @@ Usage:
   # Private / pre-IPO company by URL (auto-detected)
   python3 discover.py "Vicarious Surgical" https://vicarioussurgical.com --out manifest.json
 
+  # Narrow EDGAR walk to a date range
+  python3 discover.py "Abbott" ABT --start-year 2015 --end-year 2024 --out abbott.json
+
+  # Use the old sparse FTS sampler instead of the dense walker
+  python3 discover.py "Abbott" ABT --edgar-sample --out abbott_quick.json
+
   # Explicit flags (still supported)
   python3 discover.py "Acme Medtech" --ticker ACME --out manifest.json
   python3 discover.py "Acme Medtech" --url https://acme.example --out manifest.json
+
+EDGAR compliance: set SEC_USER_AGENT in your environment to a string the SEC
+can identify (e.g. "your-project/1.0 you@example.com"). Defaults to a generic
+identifier if unset.
 
 Note: this is a SKETCH. The wire/newsroom search step is stubbed —
 it should be wired to whatever search transport the skill environment
@@ -38,6 +57,10 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
+
+# Dense EDGAR enumeration helper (lives in the same archiver/ package).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import edgar_dense  # noqa: E402
 
 USER_AGENT_SEC = "Press Release Archiver Skill your-email@example.com"
 
@@ -169,20 +192,24 @@ def is_press_release_exhibit(file_type, file_description):
     return True
 
 
-def enumerate_edgar_press_releases(cik):
-    """Return list of (filing_date, accession, file_description) tuples for
-    every 8-K filed by `cik` that has a press-release-style EX-99.1 exhibit.
+def enumerate_edgar_press_releases_fts(cik):
+    """SAMPLER PATH — kept for spot-checks via --edgar-sample.
+
+    Returns list of (filing_date, accession, file_description) tuples for
+    8-K filings whose body text contains the literal phrase "press release",
+    filtered to those with an EX-99.1 exhibit.
 
     Uses EDGAR's full-text search backend (efts.sec.gov). The endpoint
-    requires a non-empty `q=` parameter; we use `q="press release"` to
-    bias toward 8-Ks that mention a press release (most do, in the body
-    of the form even when the exhibit description doesn't). Pages results
-    in batches of 100 (EDGAR's max per request).
+    requires a non-empty `q=` parameter; we use `q="press release"`. Pages
+    results in batches of 100.
 
-    Known limitation: 8-Ks whose body doesn't contain the phrase "press
-    release" will be missed. For high-volume mature filers this is
-    occasionally an issue (~5-10% miss rate). A more thorough approach
-    would walk data.sec.gov/submissions/ and inspect each 8-K's index.
+    Known limitations that motivated the dense walker (enumerate_edgar_dense):
+      - 8-Ks whose body doesn't contain "press release" are missed.
+      - The FTS result set is capped (~10K hits across all queries) and very
+        high-volume filers get truncated. For Abbott (CIK 0000001800) this
+        returned only ~7 entries vs. thousands of actual 8-Ks on file.
+
+    Prefer enumerate_edgar_dense() for any production run.
     """
     cik_padded = cik  # already 10 digits
     rows = []
@@ -224,6 +251,25 @@ def enumerate_edgar_press_releases(cik):
 
     rows.sort()
     return rows
+
+
+def enumerate_edgar_press_releases(cik, *, mode="dense", start_year=None,
+                                    end_year=None, delay_ms=120,
+                                    max_filings=5000):
+    """Top-level EDGAR enumeration. Routes to either the dense walker
+    (default; covers every 8-K) or the legacy FTS sampler (--edgar-sample).
+
+    Both return list of (date, accession, description) tuples sorted ascending.
+    """
+    if mode == "sample":
+        return enumerate_edgar_press_releases_fts(cik)
+    return edgar_dense.enumerate_dense(
+        cik,
+        start_year=start_year,
+        end_year=end_year,
+        delay_ms=delay_ms,
+        max_filings=max_filings,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -273,10 +319,12 @@ def merge_sources(edgar_rows, wire_rows, company_name):
     """
     entries = {}
 
-    # Seed from EDGAR (authoritative for date + accession)
+    # Pass 1: count entries per actual_date so we know which need a -<n> suffix.
+    # Dense mode can produce many 8-Ks on the same day; the slug becomes the
+    # output filename downstream, so collisions would silently overwrite.
+    date_counts = {}
+    resolved_dates = []
     for date, accession, desc in edgar_rows:
-        # Try to extract date from description like "PRESS RELEASE OF X DATED MARCH 4, 2024"
-        # else fall back to filing date.
         actual_date = date
         m = re.search(r"DATED\s+(\w+)\s+(\d+),?\s+(\d{4})", desc, re.I)
         if m:
@@ -286,8 +334,17 @@ def merge_sources(edgar_rows, wire_rows, company_name):
                 actual_date = d.strftime("%Y-%m-%d")
             except ValueError:
                 pass
+        date_counts[actual_date] = date_counts.get(actual_date, 0) + 1
+        resolved_dates.append(actual_date)
 
-        slug = f"press-release-{actual_date}"
+    # Pass 2: seed entries with disambiguated slugs.
+    per_date_seq = {}
+    for (date, accession, desc), actual_date in zip(edgar_rows, resolved_dates):
+        per_date_seq[actual_date] = per_date_seq.get(actual_date, 0) + 1
+        seq = per_date_seq[actual_date]
+        slug = (f"press-release-{actual_date}"
+                if date_counts[actual_date] == 1
+                else f"press-release-{actual_date}-{seq}")
         entries[actual_date + "|" + accession] = {
             "date": actual_date,
             "headline": None,        # filled by fetch.py from EX-99.1 body
@@ -444,6 +501,29 @@ def main():
                     help="Print the wire-search queries Claude should run, "
                          "then exit. Use after a fresh discover run when "
                          "preparing to gather wire URLs.")
+
+    # EDGAR walker options
+    edgar = ap.add_argument_group(
+        "EDGAR enumeration",
+        "Controls the SEC EDGAR 8-K walk. The dense walker is the default "
+        "and covers every 8-K filing on file for the CIK; the older FTS "
+        "sampler is reachable via --edgar-sample for quick spot-checks.")
+    edgar.add_argument("--start-year", type=int, default=None,
+                       help="Earliest filing year to include (inclusive). "
+                            "Default: no lower bound (typically 1994+).")
+    edgar.add_argument("--end-year", type=int, default=None,
+                       help="Latest filing year to include (inclusive). "
+                            "Default: current year.")
+    edgar.add_argument("--edgar-sample", action="store_true",
+                       help="Use the legacy efts.sec.gov full-text-search "
+                            "sampler instead of the dense submissions walker. "
+                            "Fast but incomplete for high-volume filers.")
+    edgar.add_argument("--edgar-delay", type=int, default=120,
+                       help="Politeness delay (ms) between SEC requests "
+                            "(default 120; SEC cap is ~10 req/sec).")
+    edgar.add_argument("--max-filings", type=int, default=5000,
+                       help="Safety cap on 8-Ks examined in dense mode "
+                            "(default 5000; warns if hit).")
     args = ap.parse_args()
 
     # ----- Mode: --manifest-merge (wire URLs piped in by Claude) -----
@@ -511,8 +591,21 @@ def main():
 
     edgar_rows = []
     if is_public and cik:
-        print(f"Enumerating EDGAR 8-K press releases for CIK {cik}...")
-        edgar_rows = enumerate_edgar_press_releases(cik)
+        mode = "sample" if args.edgar_sample else "dense"
+        if mode == "sample":
+            print(f"Enumerating EDGAR 8-K press releases for CIK {cik} "
+                  f"(sampler mode — incomplete on high-volume filers)...")
+        else:
+            print(f"Enumerating EDGAR 8-K press releases for CIK {cik} "
+                  f"(dense walk, years {args.start_year or 'any'}–{args.end_year or 'now'})...")
+        edgar_rows = enumerate_edgar_press_releases(
+            cik,
+            mode=mode,
+            start_year=args.start_year,
+            end_year=args.end_year,
+            delay_ms=args.edgar_delay,
+            max_filings=args.max_filings,
+        )
         print(f"  Found {len(edgar_rows)} press releases on EDGAR")
 
     # ----- Mode: --update (incremental, narrow to net-new) -----
